@@ -1,6 +1,4 @@
 import com.datastax.spark.connector._
-import play.api.libs.json.Json
-import play.api.libs.json._
 import java.io.{ByteArrayOutputStream, ByteArrayInputStream}
 import java.util.zip.{GZIPOutputStream, GZIPInputStream}
 

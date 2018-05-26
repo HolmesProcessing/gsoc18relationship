@@ -20,3 +20,5 @@ val cuckoo_sha256_rdd = sc.cassandraTable[CuckooSha256](KEYSPACE, SHA256_TABLE)
 val cuckoo_join = cuckoo_service_name_rdd.join(cuckoo_sha256_rdd)
                 .map(x => (new CuckooJoin(x._1._1, x._1._2, unzip(x._2._2.results))))
                 .distinct();
+
+cuckoo_join.toDF().write.format("parquet").save("cuckoo.df");

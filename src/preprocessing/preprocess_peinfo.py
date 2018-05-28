@@ -27,4 +27,4 @@ def find_val_in_peinfo(results):
 
     val_list.append(peinfo["HEADERS"]["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0])
 
-    return peinfo
+    return val_list

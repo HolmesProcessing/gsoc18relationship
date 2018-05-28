@@ -25,6 +25,6 @@ def find_val_in_peinfo(results):
         val_list[i * 4 + 2] = s["Misc_VirtualSize"]["Value"]
         val_list[i * 4 + 3] = s["SizeOfRawData"]["Value"]
 
-    val_list.append(peinfo["HEADERS"]["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0])
+    val_list.append(int(peinfo["HEADERS"]["FILE_HEADER"]["TimeDateStamp"]["Value"].split(" ")[0], 16))
 
     return val_list

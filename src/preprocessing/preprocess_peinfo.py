@@ -1,7 +1,7 @@
 import json
 
 peinfo_rdd = sqlContext.read.parquet(DF_LOCATION).rdd
-peinfo_results = peinfo_rdd.map(lambda x: (x.sha256, find_val_in_peinfo(x.results)))
+peinfo_results = peinfo_rdd.map(lambda x: (x.sha256, x.service_name, find_val_in_peinfo(x.results), convert_to_list(x.source_tags)))
 
 def find_val_in_peinfo(results):
     val_list = [0.0] * 16
@@ -29,6 +29,9 @@ def find_val_in_peinfo(results):
 
     return val_list
 
+def convert_to_list(source_tags):
+    return source_tags[1:len(source_tags) - 1].split(',')
+
 peinfo_df = peinfo_results.toDF()
-peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "features")
-peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PEINFO_RESULTS_TABLE, keyspace=KEYSPACE).save()
+peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "service_name").withColumnRenamed("_3", "features").withColumnRenamed("_4", "label")
+peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_TABLE, keyspace=KEYSPACE).save()

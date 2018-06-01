@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option java_outer_classname = "FeedHandling";
+option objc_class_prefix = "FH";
+
+package feedhandling;
+
+service FeedHandling {
+    rpc GetTrainingData(Empty) returns (stream TrainingData) {}
+}
+
+message TrainingData {
+    string sha256 = 1;
+    string service_name = 2;
+    repeated string features = 3;
+    repeated string labels = 4;
+}
+
+message Empty {
+}

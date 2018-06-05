@@ -22,7 +22,7 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
 
         rows = session.execute('SELECT * FROM ' + FEATURE_TABLE)
         for r in rows:
-            yield feed_handling_pb2.TrainingData(sha256=r.sha256, service_name=r.service_name, features=r.features, labels=r.labels)
+            yield feed_handling_pb2.TrainingData(sha256=r.sha256, service_name=r.service_name, features=r.features, label=r.label)
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))

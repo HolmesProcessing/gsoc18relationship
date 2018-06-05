@@ -13,7 +13,7 @@ message TrainingData {
     string sha256 = 1;
     string service_name = 2;
     repeated string features = 3;
-    repeated string labels = 4;
+    string label = 4;
 }
 
 message Empty {

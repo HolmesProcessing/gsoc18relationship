@@ -21,7 +21,8 @@ def find_api_call_in_cuckoo(results):
 
 def convert_to_label(source_tags):
     labels = source_tags[1:len(source_tags) - 1].split(',')
-    return labels[1 - labels.index('malicious')]
+    labels.remove('malicious')
+    return labels[len(labels) - 1]
 
 cuckoo_df = cuckoo_results.toDF()
 cuckoo_df = cuckoo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "service_name").withColumnRenamed("_3", "features").withColumnRenamed("_4", "label")

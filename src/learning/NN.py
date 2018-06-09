@@ -24,25 +24,47 @@ def encode_label(label):
     return labels.index(label)
 
 class NN:
-    def __init__(self, file_path, feature_length, label_length, model='FFNN', learning_rate=1e-3):
-        reader = feed_handling_pb2.TrainingData()
-        data = pickle.load(open(file_path, 'rb'))
-
-        self.X = []
+    def __init__(self, file_path, feature_length, label_length, learning_rate=1e-3):
+        self.X_cuckoo = []
+        self.X_objdump = []
+        self.X_peinfo = []
+        self.X_richheader = []
         self.y = []
 
-        for d in data:
-            reader.ParseFromString(d)
-            self.X.append(np.array(map(float, reader.features)))
-            self.y.append(reader.label)
+        objects = pickle.load(open(file_path, 'rb'))
 
-        self.X = preprocessing.MinMaxScaler().fit_transform(self.X)
-        self.y = np.array(self.y)
+        reader = feed_handling_pb2.TrainingData()
+        for o in objects:
+            reader.ParseFromString(o)
+
+            if not reader.features_cuckoo:
+                self.X_cuckoo.append(['nop'] * 100)
+            else:
+                self.X_cuckoo.append(reader.features_cuckoo)
+
+            if not reader.features_objdump:
+                self.X_objdump.append(np.zeros(100))
+            else:
+                self.X_objdump.append(np.array(map(float, reader.features_objdump)))
+
+            if not reader.features_peinfo:
+                self.X_peinfo.append(np.zeros(17))
+            else:
+                self.X_peinfo.append(np.array(map(float, reader.features_peinfo)))
+
+            if not reader.features_richheader:
+                self.X_richheader.append(np.array([[0,0,0]] * 20))
+            else:
+                self.X_richheader.append(np.array(reader.features_richheader))
+
+            self.y.append(encode_label(reader.label))
+
+        self.X_objdump = preprocessing.MinMaxScaler().fit_transform(self.X_objdump)
+        self.X_peinfo = preprocessing.MinMaxScaler().fit_transform(self.X_peinfo)
+        self.X = np.concatenate((self.X_objdump, self.X_peinfo), axis=1)
 
         self.feature_length = feature_length
         self.label_length = label_length
-        self.model = model
-
         self.W_out = None
         self.b_out = None
 
@@ -57,8 +79,8 @@ class NN:
         X_res, y_res = ros.fit_sample(self.X_train, self.y_train)
         X_res, y_res = shuffle(X_res, y_res, random_state=0)
 
-        print "Initial shape: {0}".format(self.X_train.shape)
-        print "Resulting shape: {0}".format(X_res.shape)
+        print('Initial shape: {0}'.format(self.X_train.shape))
+        print('Resulting shape: {0}'.format(X_res.shape))
         print('Initial dataset shape {}'.format(Counter(self.y_train)))
         print('Resampled dataset shape {}'.format(Counter(y_res)))
 
@@ -70,13 +92,7 @@ class NN:
         self.y_train_bin = np.zeros((num_y, self.label_length))
 
         for i in range(num_y):
-            self.y_train_bin[i, encode_label(self.y_train[i])] = 1
-
-    def load_dataset_train(self, batch_size):
-        for i in range(0, len(self.X_train) - batch_size + 1, batch_size):
-            excerpt = slice(i, i + batch_size)
-
-            yield self.X_train[excerpt], self.y_train_bin[excerpt]
+            self.y_train_bin[i, self.y_train[i]] = 1
 
     def build_NN(self, features, labels):
         if not self.W_out:
@@ -92,22 +108,24 @@ class NN:
 
         h = tf.nn.relu(tf.matmul(features, W_ff_1) + b_ff_1)
         h_2 = tf.nn.relu(tf.matmul(h, W_ff_2) + b_ff_2)
-        h_out = tf.nn.dropout(h_2, self.keep_prob)
 
         y_raw = tf.matmul(h_2, self.W_out) + self.b_out
         y_out = tf.nn.softmax(y_raw)
+        loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=y_out, labels=labels))
 
-        self.grad_ffnn = tf.gradients(y_out, features)
-        self.loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=y_out, labels=labels))
-        self.labels = tf.argmax(y_out, 1)
+        return (y_out, loss)
 
     def build(self, learning_rate):
-        self.train_features = tf.placeholder("float32", shape=(None, self.feature_length))
-        self.train_labels = tf.placeholder("float32", shape=(None, self.label_length))
-        self.keep_prob = tf.placeholder("float")
+        self.train_features = tf.placeholder(tf.float32, shape=(None, self.feature_length))
+        self.train_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
 
-        self.build_NN(self.train_features, self.train_labels)
+        self.y_out, self.loss = self.build_NN(self.train_features, self.train_labels)
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
+
+        self.new_features = tf.placeholder(tf.float32, shape=(None, self.feature_length))
+        self.new_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
+        self.new_y_out, self.new_loss = self.build_NN(features=self.new_features, labels=self.new_labels)
+
         self.init_op = tf.global_variables_initializer()
 
     def train(self, iteration, num_epochs=200):
@@ -115,22 +133,25 @@ class NN:
         self.sess.run(self.init_op)
 
         for epoch in range(num_epochs):
-            train_err = 0
-            train_batches = 0
+            print('Epoch %2d/%2d: ' % (epoch + 1, num_epochs))
 
-            for batch_id, batch in enumerate(self.load_dataset_train(20)):
-                X, y = batch
+            self.sess.run(self.train_opt, feed_dict={self.train_features:self.X_train, self.train_labels:self.y_train_bin})
 
-                self.sess.run(self.train_opt, feed_dict={self.train_features:X, self.train_labels:np.float64(y), self.keep_prob: 0.7})
-                train_err_new = self.loss.eval(feed_dict={self.train_features:X, self.train_labels:y, self.keep_prob: 1.0}, session=self.sess)
-
-                print("{0}: {1}".format(batch_id, train_err_new))
-                train_err += train_err_new
-
-                print("Epoch: {0}, Cost: {1}".format(epoch, train_err))
+            y_out = self.predict(self.X_train)
+            train_loss = self.evaluate(self.X_train, self.y_train_bin)
+            train_acc = self.get_accuracy(y_out, self.y_train_bin)
+            msg = ' loss = %8.4f, acc = %3.2f%%' % (train_loss, train_acc * 100)
+            print(msg)
 
     def predict(self, X):
-        pass
+        return self.sess.run(self.new_y_out, feed_dict={self.new_features: X})
+
+    def evaluate(self, X, y):
+        return self.sess.run(self.new_loss, feed_dict={self.new_features: X, self.new_labels: y})
+
+    def get_accuracy(self, predictions, labels):
+        return (np.sum(np.argmax(predictions, 1) == np.argmax(labels, 1)) / predictions.shape[0])
+
 
 if __name__ == '__main__':
     nn_instance = NN(FILE_LOCATION, feature_length=FEATURE_LENGTH, label_length=LABEL_LENGTH)

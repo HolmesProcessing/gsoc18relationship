@@ -111,20 +111,20 @@ class NN:
 
         y_raw = tf.matmul(h_2, self.W_out) + self.b_out
         y_out = tf.nn.softmax(y_raw)
-        loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=y_out, labels=labels))
+        loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=y_out, labels=labels))
 
         return (y_out, loss)
 
     def build(self, learning_rate):
         self.train_features = tf.placeholder(tf.float32, shape=(None, self.feature_length))
         self.train_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
-
         self.y_out, self.loss = self.build_NN(self.train_features, self.train_labels)
+
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
-        self.new_features = tf.placeholder(tf.float32, shape=(None, self.feature_length))
-        self.new_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
-        self.new_y_out, self.new_loss = self.build_NN(features=self.new_features, labels=self.new_labels)
+        self.correct_prediction = tf.equal(tf.argmax(self.y_out, 1), tf.argmax(self.train_labels, 1))
+        self.correct_predictions = tf.reduce_sum(tf.cast(self.correct_prediction, tf.float32))
+        self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
 
         self.init_op = tf.global_variables_initializer()
 
@@ -137,20 +137,15 @@ class NN:
 
             self.sess.run(self.train_opt, feed_dict={self.train_features:self.X_train, self.train_labels:self.y_train_bin})
 
-            y_out = self.predict(self.X_train)
             train_loss = self.evaluate(self.X_train, self.y_train_bin)
-            train_acc = self.get_accuracy(y_out, self.y_train_bin)
-            msg = ' loss = %8.4f, acc = %3.2f%%' % (train_loss, train_acc * 100)
-            print(msg)
-
-    def predict(self, X):
-        return self.sess.run(self.new_y_out, feed_dict={self.new_features: X})
+            train_acc = self.get_accuracy(self.X_train, self.y_train_bin)
+            print(' loss = %8.4f, acc = %3.2f%%' % (train_loss, train_acc * 100))
 
     def evaluate(self, X, y):
-        return self.sess.run(self.new_loss, feed_dict={self.new_features: X, self.new_labels: y})
+        return self.loss.eval(feed_dict={self.train_features:X, self.train_labels:y}, session=self.sess)
 
-    def get_accuracy(self, predictions, labels):
-        return (np.sum(np.argmax(predictions, 1) == np.argmax(labels, 1)) / predictions.shape[0])
+    def get_accuracy(self, X, y):
+        return self.correct_predictions.eval(feed_dict={self.train_features:self.X_train, self.train_labels:self.y_train_bin}, session=self.sess) / X.shape[0]
 
 
 if __name__ == '__main__':

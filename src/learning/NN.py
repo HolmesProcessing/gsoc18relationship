@@ -5,7 +5,7 @@ import tensorflow as tf
 import feed_handling_pb2
 
 from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
 from sklearn.utils import shuffle
 from imblearn.under_sampling import RandomUnderSampler
 from collections import Counter
@@ -62,6 +62,7 @@ class NN:
         self.X_objdump = preprocessing.MinMaxScaler().fit_transform(self.X_objdump)
         self.X_peinfo = preprocessing.MinMaxScaler().fit_transform(self.X_peinfo)
         self.X = np.concatenate((self.X_objdump, self.X_peinfo), axis=1)
+        self.y = np.array(self.y)
 
         self.feature_length = feature_length
         self.label_length = label_length
@@ -71,8 +72,9 @@ class NN:
         tf.set_random_seed(1337)
         self.build(learning_rate)
 
-    def split_train_test(self, test_size, random_state):
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X, self.y, test_size=test_size, random_state=random_state, stratify=self.y)
+    def split_train_test(self, num_splits, random_state):
+        skf = StratifiedKFold(n_splits=num_splits, random_state=random_state)
+        return skf.split(self.X, self.y)
 
     def resample(self, random_state):
         ros = RandomUnderSampler(random_state=random_state)
@@ -87,7 +89,10 @@ class NN:
         self.X_train = X_res
         self.y_train = y_res
 
-    def prepare_train_bin(self):
+    def prepare_data(self, train_index, test_index):
+        self.X_train, self.X_test = self.X[train_index], self.X[test_index]
+        self.y_train, self.y_test = self.y[train_index], self.y[test_index]
+
         num_y = np.size(self.y_train)
         self.y_train_bin = np.zeros((num_y, self.label_length))
 
@@ -128,7 +133,7 @@ class NN:
 
         self.init_op = tf.global_variables_initializer()
 
-    def train(self, iteration, num_epochs=200):
+    def train(self, num_epochs=200):
         self.sess = tf.Session()
         self.sess.run(self.init_op)
 
@@ -151,10 +156,8 @@ class NN:
 if __name__ == '__main__':
     nn_instance = NN(FILE_LOCATION, feature_length=FEATURE_LENGTH, label_length=LABEL_LENGTH)
 
-    i = 0
+    skf = nn_instance.split_train_test(3, 0)
 
-    nn_instance.split_train_test(0.4, 0)
-    nn_instance.resample(42)
-    nn_instance.prepare_train_bin()
-
-    nn_instance.train(iteration=i)
+    for train_index, test_index in skf:
+        nn_instance.prepare_data(train_index, test_index)
+        nn_instance.train()

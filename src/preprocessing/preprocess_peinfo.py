@@ -2,6 +2,7 @@ import json
 
 peinfo_rdd = sqlContext.read.parquet(DF_LOCATION).rdd
 peinfo_results = peinfo_rdd.map(lambda x: (x.sha256, x.service_name, find_val_in_peinfo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
+peinfo_objects = peinfo_rdd.map(lambda x: (x.sha256, find_val_in_peinfo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
 
 def find_val_in_peinfo(results):
     val_list = [0.0] * 16
@@ -36,4 +37,9 @@ def convert_to_label(source_tags):
 
 peinfo_df = peinfo_results.toDF()
 peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "service_name").withColumnRenamed("_3", "features").withColumnRenamed("_4", "label")
-peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_TABLE, keyspace=KEYSPACE).save()
+peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_RESULTS, keyspace=KEYSPACE).save()
+
+peinfo_df = peinfo_objects.toDF()
+peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "features_peinfo").withColumnRenamed("_3", "label")
+peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_OBJECTS, keyspace=KEYSPACE).save()
+

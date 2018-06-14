@@ -11,9 +11,11 @@ service FeedHandling {
 
 message TrainingData {
     string sha256 = 1;
-    string service_name = 2;
-    repeated string features = 3;
-    string label = 4;
+    repeated string features_cuckoo = 2;
+    repeated string features_objdump = 3;
+    repeated string features_peinfo = 4;
+    repeated string features_richheader = 5;
+    string label = 6;
 }
 
 message Empty {

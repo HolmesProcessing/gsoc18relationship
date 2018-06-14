@@ -7,7 +7,7 @@ import feed_handling_pb2
 from sklearn import preprocessing
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils import shuffle
-from imblearn.under_sampling import RandomUnderSampler
+from imblearn.over_sampling import RandomOverSampler
 from collections import Counter
 
 
@@ -77,7 +77,7 @@ class NN:
         return skf.split(self.X, self.y)
 
     def resample(self, random_state):
-        ros = RandomUnderSampler(random_state=random_state)
+        ros = RandomOverSampler(random_state=random_state)
         X_res, y_res = ros.fit_sample(self.X_train, self.y_train)
         X_res, y_res = shuffle(X_res, y_res, random_state=0)
 
@@ -92,6 +92,8 @@ class NN:
     def prepare_data(self, train_index, test_index):
         self.X_train, self.X_test = self.X[train_index], self.X[test_index]
         self.y_train, self.y_test = self.y[train_index], self.y[test_index]
+
+        self.resample(42)
 
         num_y = np.size(self.y_train)
         self.y_train_bin = np.zeros((num_y, self.label_length))
@@ -133,14 +135,20 @@ class NN:
 
         self.init_op = tf.global_variables_initializer()
 
-    def train(self, num_epochs=200):
+    def train(self, num_epochs=200, batch_size=50):
         self.sess = tf.Session()
         self.sess.run(self.init_op)
 
+        N = self.X_train.shape[0]
         for epoch in range(num_epochs):
             print('Epoch %2d/%2d: ' % (epoch + 1, num_epochs))
 
-            self.sess.run(self.train_opt, feed_dict={self.train_features:self.X_train, self.train_labels:self.y_train_bin})
+            index = [i for i in range(N)]
+            while len(index) > 0:
+                index_size = len(index)
+                batch_index = [index.pop() for i in range(min(batch_size, index_size))]
+
+                self.sess.run(self.train_opt, feed_dict={self.train_features:self.X_train[batch_index,:], self.train_labels:self.y_train_bin[batch_index]})
 
             train_loss = self.evaluate(self.X_train, self.y_train_bin)
             train_acc = self.get_accuracy(self.X_train, self.y_train_bin)

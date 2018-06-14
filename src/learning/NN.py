@@ -19,12 +19,21 @@ def bias_variable(shape):
     initial = tf.constant(0.1, shape=shape)
     return tf.Variable(initial)
 
+def conv2d(x, W):
+    return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+
+def max_pool_1(x):
+    return tf.nn.avg_pool(x, ksize=[1, 2, 1, 1], strides=[1, 2, 1, 1], padding='SAME')
+
+def max_pool_2(x):
+    return tf.nn.avg_pool(x, ksize=[1, 250, 1, 1], strides=[1, 250, 1, 1], padding='SAME')
+
 def encode_label(label):
     labels = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
     return labels.index(label)
 
 class NN:
-    def __init__(self, file_path, feature_length, label_length, learning_rate=1e-3):
+    def __init__(self, file_path, label_length, learning_rate=1e-3):
         self.X_cuckoo = []
         self.X_objdump = []
         self.X_peinfo = []
@@ -38,9 +47,9 @@ class NN:
             reader.ParseFromString(o)
 
             if not reader.features_cuckoo:
-                self.X_cuckoo.append(['nop'] * 100)
+                self.X_cuckoo.append(np.zeros(150))
             else:
-                self.X_cuckoo.append(reader.features_cuckoo)
+                self.X_cuckoo.append(np.array(map(float, reader.features_cuckoo)))
 
             if not reader.features_objdump:
                 self.X_objdump.append(np.zeros(100))
@@ -53,18 +62,20 @@ class NN:
                 self.X_peinfo.append(np.array(map(float, reader.features_peinfo)))
 
             if not reader.features_richheader:
-                self.X_richheader.append(np.array([[0,0,0]] * 20))
+                self.X_richheader.append(np.zeros(80))
             else:
-                self.X_richheader.append(np.array(reader.features_richheader))
+                self.X_richheader.append(np.array(map(float, reader.features_richheader)))
 
             self.y.append(encode_label(reader.label))
 
+        self.X_cuckoo = np.array(self.X_cuckoo)
         self.X_objdump = preprocessing.MinMaxScaler().fit_transform(self.X_objdump)
         self.X_peinfo = preprocessing.MinMaxScaler().fit_transform(self.X_peinfo)
-        self.X = np.concatenate((self.X_objdump, self.X_peinfo), axis=1)
+        self.X_richheader = preprocessing.MinMaxScaler().fit_transform(self.X_richheader)
+
+        self.X = np.concatenate((self.X_cuckoo, self.X_objdump, self.X_peinfo, self.X_richheader), axis=1)
         self.y = np.array(self.y)
 
-        self.feature_length = feature_length
         self.label_length = label_length
         self.W_out = None
         self.b_out = None
@@ -101,31 +112,59 @@ class NN:
         for i in range(num_y):
             self.y_train_bin[i, self.y_train[i]] = 1
 
-    def build_NN(self, features, labels):
-        if not self.W_out:
-            self.W_out = weight_variable([self.feature_length, self.label_length])
+    def encode_cnn_features(self, cnn_features):
+        x_cnn = np.empty((0, 150), dtype=np.float64)
+        for i in range(50):
+            x = np.zeros((150, 322), dtype=np.float64)
+            for j in range(150):
+                x[j, int(cnn_features[i, j])] = True
+            x = np.transpose(x)
+            x_cnn = np.append(x_cnn, x, axis=0)
 
-        if not self.b_out:
-            self.b_out = bias_variable([self.label_length])
+        return x_cnn.T.reshape(-1, 150, 322)
 
-        W_ff_1 = weight_variable([self.feature_length, self.feature_length])
-        b_ff_1 = bias_variable([self.feature_length])
-        W_ff_2 = weight_variable([self.feature_length, self.feature_length])
-        b_ff_2 = bias_variable([self.feature_length])
+    def build_mlp(self, features, feature_length):
+        W_ff_1 = weight_variable([feature_length, feature_length])
+        b_ff_1 = bias_variable([feature_length])
+        W_ff_2 = weight_variable([feature_length, feature_length])
+        b_ff_2 = bias_variable([feature_length])
 
         h = tf.nn.relu(tf.matmul(features, W_ff_1) + b_ff_1)
         h_2 = tf.nn.relu(tf.matmul(h, W_ff_2) + b_ff_2)
 
-        y_raw = tf.matmul(h_2, self.W_out) + self.b_out
-        y_out = tf.nn.softmax(y_raw)
-        loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=y_out, labels=labels))
+        return h_2
 
-        return (y_out, loss)
+    def build_cnn(self, features, dict_length):
+        W_conv_1 = weight_variable([3, dict_length, 1, 3])
+        b_conv_1 = bias_variable([3])
+        W_conv_2 = weight_variable([3, dict_length, 3, 6])
+        b_conv_2 = bias_variable([6])
+
+        h_conv_1 = tf.nn.relu(conv2d(tf.expand_dims(features, 3), W_conv_1) + b_conv_1)
+        h_pool_1 = max_pool_1(h_conv_1)
+        h_conv_2 = tf.nn.relu(conv2d(h_pool_1, W_conv_2) + b_conv_2)
+        h_pool_2 = max_pool_2(h_conv_2)
+
+        return tf.reshape(h_pool_2, [-1, dict_length * 6])
 
     def build(self, learning_rate):
-        self.train_features = tf.placeholder(tf.float32, shape=(None, self.feature_length))
+        self.train_mlp_features = tf.placeholder(tf.float32, shape=(None, 197))
+        self.train_cnn_features = tf.placeholder(tf.float32, shape=(None, 150, 322))
         self.train_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
-        self.y_out, self.loss = self.build_NN(self.train_features, self.train_labels)
+
+        NN_mlp = self.build_mlp(self.train_mlp_features, 197)
+        NN_cnn = self.build_cnn(self.train_cnn_features, 322)
+        h_concat = tf.concat([NN_mlp, NN_cnn], 1)
+
+        if not self.W_out:
+            self.W_out = weight_variable([2129, self.label_length])
+
+        if not self.b_out:
+            self.b_out = bias_variable([self.label_length])
+
+        y_raw = tf.matmul(h_concat, self.W_out) + self.b_out
+        self.y_out = tf.nn.softmax(y_raw)
+        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.train_labels))
 
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
@@ -144,21 +183,30 @@ class NN:
             print('Epoch %2d/%2d: ' % (epoch + 1, num_epochs))
 
             index = [i for i in range(N)]
+            batch_id = 0
             while len(index) > 0:
                 index_size = len(index)
                 batch_index = [index.pop() for i in range(min(batch_size, index_size))]
 
-                self.sess.run(self.train_opt, feed_dict={self.train_features:self.X_train[batch_index,:], self.train_labels:self.y_train_bin[batch_index]})
+                cnn_features, mlp_features = np.hsplit(self.X_train[batch_index,:], [150])
+                cnn_features_bin = self.encode_cnn_features(cnn_features)
 
-            train_loss = self.evaluate(self.X_train, self.y_train_bin)
-            train_acc = self.get_accuracy(self.X_train, self.y_train_bin)
+                self.sess.run(self.train_opt, feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features_bin, self.train_labels:self.y_train_bin[batch_index]})
+                train_loss_batch = self.loss.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features_bin, self.train_labels:self.y_train_bin[batch_index]}, session=self.sess)
+
+                print("{0}: {1}".format(batch_id, train_loss_batch))
+                batch_id += 1
+
+            cnn_features, mlp_features = np.hsplit(self.X_train[batch_index,:], [150])
+            train_loss = self.evaluate(mlp_features, cnn_features_bin, self.y_train_bin)
+            train_acc = self.get_accuracy(mlp_features, cnn_features_bin, self.y_train_bin)
             print(' loss = %8.4f, acc = %3.2f%%' % (train_loss, train_acc * 100))
 
-    def evaluate(self, X, y):
-        return self.loss.eval(feed_dict={self.train_features:X, self.train_labels:y}, session=self.sess)
+    def evaluate(self, mlp_features, cnn_features, y):
+        return self.loss.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:y}, session=self.sess)
 
-    def get_accuracy(self, X, y):
-        return self.correct_predictions.eval(feed_dict={self.train_features:self.X_train, self.train_labels:self.y_train_bin}, session=self.sess) / X.shape[0]
+    def get_accuracy(self, mlp_features, cnn_features, y):
+        return self.correct_predictions.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:y}, session=self.sess) / y.shape[0]
 
 
 if __name__ == '__main__':

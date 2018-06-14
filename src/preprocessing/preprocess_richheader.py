@@ -10,12 +10,12 @@ def find_compid_in_richheader(results):
     richheader = json.loads(results)
 
     if 'cmpids' not in richheader:
-        return [(0,0,0)] * 20
+        return [0] * 80
 
     for compid in richheader['cmpids']:
-        compid_list.append((compid['mcv'], compid['pid'], compid['cnt']))
+        compid_list.extend([compid['mcv'], compid['pid'], compid['cnt']])
 
-    compid_list += [(0,0,0)] * (20 - len(compid_list))
+    compid_list += [0] * (80 - len(compid_list))
 
     return compid_list
 

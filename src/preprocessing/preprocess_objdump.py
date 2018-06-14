@@ -17,7 +17,7 @@ def find_op_in_objdump(results):
             for b in v['blocks']:
                 try:
                     for op in b['opcodes']:
-                        op_list.append(op)
+                        op_list.append(opcodes.index(op))
                 except:
                     pass
         except:

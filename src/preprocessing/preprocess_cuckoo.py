@@ -1,6 +1,9 @@
 import ast
 import json
 
+with open(APICALLS) as f:
+    apicalls = f.read().splitlines()
+
 cuckoo_rdd = sqlContext.read.parquet(DF_LOCATION).rdd
 cuckoo_results = cuckoo_rdd.map(lambda x: (x.sha256, x.service_name, find_api_call_in_cuckoo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
 cuckoo_objects = cuckoo_rdd.map(lambda x: (x.sha256, find_api_call_in_cuckoo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
@@ -11,12 +14,12 @@ def find_api_call_in_cuckoo(results):
     try:
         for j in ast.literal_eval(results):
             if j['Subtype'] == 'api_call':
-                api_call_list.append(j['Result'])
+                api_call_list.append(apicalls.index(j['Result']) + 1)
     except:
         pass
 
-    if len(api_call_list) != 200:
-        api_call_list.extend(['nop'] * (200 - len(api_call_list)))
+    if len(api_call_list) != 150:
+        api_call_list.extend([0] * (150 - len(api_call_list)))
 
     return api_call_list
 

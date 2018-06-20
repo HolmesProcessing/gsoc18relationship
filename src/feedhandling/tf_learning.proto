@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+option java_outer_classname = "TFLearning";
+option objc_class_prefix = "TFL";
+
+package tflearning;
+
+service TFLearning {
+    rpc PredictLabel(stream Features) returns (stream Label) {}
+    rpc GetRelationships(stream Indicators) returns (stream Relationships) {}
+    rpc TrainModel(Empty) returns (Empty) {}
+    rpc Echo(Foo) returns (Foo) {}
+}
+
+message Features {
+    repeated string features_cuckoo = 1;
+    repeated string features_objdump = 2;
+    repeated string features_peinfo = 3;
+    repeated string features_richheader = 4;
+}
+
+message Label {
+    string label = 1;
+}
+
+message Indicators {
+    string sha256 = 1;
+}
+
+message Relationships {
+    string sha256 = 1;
+}
+
+message Foo {
+    string msg = 1;
+}
+
+message Empty {
+}

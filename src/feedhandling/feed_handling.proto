@@ -6,7 +6,26 @@ option objc_class_prefix = "FH";
 package feedhandling;
 
 service FeedHandling {
+    rpc QueryRelationship(Query) returns (stream Relationships) {}
+    rpc SendMalwareSample(stream Sample) returns (Empty) {}
+    rpc InitiateTraining(Empty) returns (Empty) {}
     rpc GetTrainingData(Empty) returns (stream TrainingData) {}
+    rpc SendRelationship(stream Relationships) returns (Empty) {}
+    rpc Echo(Foo) returns (Foo) {}
+}
+
+message Query {
+    string timestamp = 1;
+    repeated string sha256 = 2;
+    repeated string indicators = 3;
+}
+
+message Relationships {
+    string sha256 = 1;
+}
+
+message Sample {
+    bytes data = 1;
 }
 
 message TrainingData {
@@ -16,6 +35,10 @@ message TrainingData {
     repeated string features_peinfo = 4;
     repeated string features_richheader = 5;
     string label = 6;
+}
+
+message Foo {
+    string msg = 1;
 }
 
 message Empty {

@@ -26,14 +26,14 @@ def max_pool_1(x):
     return tf.nn.avg_pool(x, ksize=[1, 2, 1, 1], strides=[1, 2, 1, 1], padding='SAME')
 
 def max_pool_2(x):
-    return tf.nn.avg_pool(x, ksize=[1, 250, 1, 1], strides=[1, 250, 1, 1], padding='SAME')
+    return tf.nn.avg_pool(x, ksize=[1, 150, 1, 1], strides=[1, 150, 1, 1], padding='SAME')
 
 def encode_label(label):
     labels = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
     return labels.index(label)
 
 class NN:
-    def __init__(self, file_path, label_length, learning_rate=1e-3):
+    def __init__(self, file_path, label_length, learning_rate=0.1):
         self.X_cuckoo = []
         self.X_objdump = []
         self.X_peinfo = []
@@ -112,9 +112,9 @@ class NN:
         for i in range(num_y):
             self.y_train_bin[i, self.y_train[i]] = 1
 
-    def encode_cnn_features(self, cnn_features):
+    def encode_cnn_features(self, cnn_features, batch_size):
         x_cnn = np.empty((0, 150), dtype=np.float64)
-        for i in range(50):
+        for i in range(batch_size):
             x = np.zeros((150, 322), dtype=np.float64)
             for j in range(150):
                 x[j, int(cnn_features[i, j])] = True
@@ -148,8 +148,8 @@ class NN:
         return tf.reshape(h_pool_2, [-1, dict_length * 6])
 
     def build(self, learning_rate):
-        self.train_mlp_features = tf.placeholder(tf.float32, shape=(None, 197))
-        self.train_cnn_features = tf.placeholder(tf.float32, shape=(None, 150, 322))
+        self.train_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='mlp_features')
+        self.train_cnn_features = tf.placeholder(tf.float32, shape=(None, 150, 322), name='cnn_features')
         self.train_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
 
         NN_mlp = self.build_mlp(self.train_mlp_features, 197)
@@ -164,17 +164,18 @@ class NN:
 
         y_raw = tf.matmul(h_concat, self.W_out) + self.b_out
         self.y_out = tf.nn.softmax(y_raw)
+        self.label = tf.argmax(self.y_out, 1, name='get_label')
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.train_labels))
 
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
-        self.correct_prediction = tf.equal(tf.argmax(self.y_out, 1), tf.argmax(self.train_labels, 1))
+        self.correct_prediction = tf.equal(self.label, tf.argmax(self.train_labels, 1))
         self.correct_predictions = tf.reduce_sum(tf.cast(self.correct_prediction, tf.float32))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
 
         self.init_op = tf.global_variables_initializer()
 
-    def train(self, num_epochs=200, batch_size=50):
+    def train(self, num_epochs=200, batch_size=100):
         self.sess = tf.Session()
         self.sess.run(self.init_op)
 
@@ -189,7 +190,7 @@ class NN:
                 batch_index = [index.pop() for i in range(min(batch_size, index_size))]
 
                 cnn_features, mlp_features = np.hsplit(self.X_train[batch_index,:], [150])
-                cnn_features_bin = self.encode_cnn_features(cnn_features)
+                cnn_features_bin = self.encode_cnn_features(cnn_features, batch_size)
 
                 self.sess.run(self.train_opt, feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features_bin, self.train_labels:self.y_train_bin[batch_index]})
                 train_loss_batch = self.loss.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features_bin, self.train_labels:self.y_train_bin[batch_index]}, session=self.sess)
@@ -208,6 +209,26 @@ class NN:
     def get_accuracy(self, mlp_features, cnn_features, y):
         return self.correct_predictions.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:y}, session=self.sess) / y.shape[0]
 
+    def save(self):
+        model_input_mlp = tf.saved_model.utils.build_tensor_info(self.train_mlp_features)
+        model_input_cnn = tf.saved_model.utils.build_tensor_info(self.train_cnn_features)
+        model_output = tf.saved_model.utils.build_tensor_info(self.label)
+
+        signature_definition = tf.saved_model.signature_def_utils.build_signature_def(
+                inputs={'mlp_features': model_input_mlp, 'cnn_features': model_input_cnn},
+                outputs={'get_label': model_output},
+                method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
+
+        builder = tf.saved_model.builder.SavedModelBuilder('./models/1')
+
+        builder.add_meta_graph_and_variables(self.sess, [tf.saved_model.tag_constants.SERVING],
+                                signature_def_map={
+                                    tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                                        signature_definition
+                                })
+
+        builder.save()
+
 
 if __name__ == '__main__':
     nn_instance = NN(FILE_LOCATION, feature_length=FEATURE_LENGTH, label_length=LABEL_LENGTH)
@@ -217,3 +238,5 @@ if __name__ == '__main__':
     for train_index, test_index in skf:
         nn_instance.prepare_data(train_index, test_index)
         nn_instance.train()
+
+    nn_instance.save()

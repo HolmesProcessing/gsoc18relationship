@@ -1,8 +1,11 @@
+import sys
+sys.path.append('../')
+
 import pickle
 import random
 import numpy as np
 import tensorflow as tf
-import feed_handling_pb2
+import feedhandling.feed_handling_pb2 as feed_handling_pb2
 
 from sklearn import preprocessing
 from sklearn.model_selection import StratifiedKFold
@@ -231,7 +234,7 @@ class NN:
 
 
 if __name__ == '__main__':
-    nn_instance = NN(FILE_LOCATION, feature_length=FEATURE_LENGTH, label_length=LABEL_LENGTH)
+    nn_instance = NN("./objects.p", label_length=20)
 
     skf = nn_instance.split_train_test(3, 0)
 

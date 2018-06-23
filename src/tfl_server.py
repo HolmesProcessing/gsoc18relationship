@@ -7,9 +7,20 @@ from feedhandling import feed_handling_pb2
 from feedhandling import feed_handling_pb2_grpc
 from tflearning import tf_learning_pb2
 from tflearning import tf_learning_pb2_grpc
+from tflearning.NN import NN
 import get_training_data
 
 _ONE_DAY_IN_SECONDS = 60 * 60 * 24
+
+def train_model():
+    nn_instance = NN("./objects.p", label_length=20)
+    skf = nn_instance.split_train_test(3, 0)
+
+    for train_index, test_index in skf:
+        nn_instance.prepare_data(train_index, test_index)
+        nn_instance.train()
+
+    return nn_instance
 
 class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
     def __init__(self, verbose):
@@ -34,10 +45,13 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
             print('[Info] Training data fetched!')
             print('[Info] Start training the model')
 
-        # train the model
+        nn_instance = train_model()
+        nn_instance.save()
 
         if self.verbose:
             print('[Info] Training done!')
+
+        # restart tensorflow_model_server
 
         return tf_learning_pb2.Empty()
 

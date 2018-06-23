@@ -1,8 +1,8 @@
 import grpc
 import pickle
 
-import feed_handling_pb2
-import feed_handling_pb2_grpc
+from feedhandling import feed_handling_pb2
+from feedhandling import feed_handling_pb2_grpc
 
 
 def get_training_data(stub):
@@ -15,12 +15,10 @@ def get_training_data(stub):
 
     f = open('objects.p', 'wb')
     pickle.dump(object_list, f)
-    f.close
+    f.close()
 
 def run():
-    channel = grpc.insecure_channel(SERVER_IP + ':50051')
+    channel = grpc.insecure_channel('localhost:9090')
     stub = feed_handling_pb2_grpc.FeedHandlingStub(channel)
     get_training_data(stub)
 
-if __name__ == '__main__':
-    run()

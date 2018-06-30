@@ -87,7 +87,7 @@ class NN:
         skf = StratifiedKFold(n_splits=num_splits, random_state=random_state)
         return skf.split(self.X, self.y)
 
-    def resample(self, random_state):
+    def resample_training_data(self, random_state):
         ros = RandomOverSampler(random_state=random_state)
         X_res, y_res = ros.fit_sample(self.X_train, self.y_train)
         X_res, y_res = shuffle(X_res, y_res, random_state=0)
@@ -104,13 +104,19 @@ class NN:
         self.X_train, self.X_test = self.X[train_index], self.X[test_index]
         self.y_train, self.y_test = self.y[train_index], self.y[test_index]
 
-        self.resample(42)
+        self.resample_training_data(42)
 
-        num_y = np.size(self.y_train)
-        self.y_train_bin = np.zeros((num_y, self.label_length))
+        num_y_train = np.size(self.y_train)
+        self.y_train_bin = np.zeros((num_y_train, self.label_length))
 
-        for i in range(num_y):
+        for i in range(num_y_train):
             self.y_train_bin[i, self.y_train[i]] = 1
+
+        num_y_test = np.size(self.y_test)
+        self.y_test_bin = np.zeros((num_y_test, self.label_length))
+
+        for i in range(num_y_test):
+            self.y_test_bin[i, self.y_test[i]] = 1
 
     def build_mlp(self, features, feature_length):
         W_ff_1 = weight_variable([feature_length, feature_length])
@@ -137,13 +143,15 @@ class NN:
         return tf.reshape(h_pool, [-1, embedded_length * 6])
 
     def build(self, learning_rate):
-        self.train_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='mlp_features')
-        self.train_cnn_features = tf.placeholder(tf.int32, shape=(None, 150), name='cnn_features')
-        self.train_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
+        self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='mlp_features')
+        self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150), name='cnn_features')
+        self.y_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
+        self.keep_prob = tf.placeholder(tf.float32)
 
-        NN_mlp = self.build_mlp(self.train_mlp_features, 197)
-        NN_cnn = self.build_cnn(self.train_cnn_features, 322, 10)
+        NN_mlp = self.build_mlp(self.X_mlp_features, 197)
+        NN_cnn = self.build_cnn(self.X_cnn_features, 322, 10)
         h_concat = tf.concat([NN_mlp, NN_cnn], 1)
+        h_dropout = tf.nn.dropout(h_concat, self.keep_prob)
 
         if not self.W_out:
             self.W_out = weight_variable([257, self.label_length])
@@ -151,20 +159,21 @@ class NN:
         if not self.b_out:
             self.b_out = bias_variable([self.label_length])
 
-        y_raw = tf.matmul(h_concat, self.W_out) + self.b_out
+        y_raw = tf.matmul(h_dropout, self.W_out) + self.b_out
         self.y_out = tf.nn.softmax(y_raw)
         self.label = tf.argmax(self.y_out, 1, name='get_label')
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.train_labels))
+        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.y_labels))
 
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
-        self.correct_prediction = tf.equal(self.label, tf.argmax(self.train_labels, 1))
+        self.correct_prediction = tf.equal(self.label, tf.argmax(self.y_labels, 1))
         self.correct_predictions = tf.reduce_sum(tf.cast(self.correct_prediction, tf.float32))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
 
         self.init_op = tf.global_variables_initializer()
 
     def train(self, num_epochs=200, batch_size=100):
+        print('Start training ...')
         self.sess = tf.Session()
         self.sess.run(self.init_op)
 
@@ -180,7 +189,7 @@ class NN:
 
                 cnn_features, mlp_features = np.hsplit(self.X_train[batch_index,:], [150])
 
-                self.sess.run(self.train_opt, feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:self.y_train_bin[batch_index]})
+                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:0.7, self.y_labels:self.y_train_bin[batch_index]})
 
                 train_loss_batch = self.evaluate(mlp_features, cnn_features, self.y_train_bin[batch_index])
                 train_acc_batch = self.get_accuracy(mlp_features, cnn_features, self.y_train_bin[batch_index])
@@ -188,15 +197,33 @@ class NN:
                 print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, train_loss_batch, train_acc_batch * 100))
                 batch_id += 1
 
+    def test(self, batch_size=100):
+        print('Start testing ...')
+        N = self.X_test.shape[0]
+
+        index = [i for i in range(N)]
+        batch_id = 0
+        while len(index) > 0 and batch_id < 200:
+            index_size = len(index)
+            batch_index = [index.pop() for i in range(min(batch_size, index_size))]
+
+            cnn_features, mlp_features = np.hsplit(self.X_test[batch_index,:], [150])
+
+            test_loss_batch = self.evaluate(mlp_features, cnn_features, self.y_test_bin[batch_index])
+            test_acc_batch = self.get_accuracy(mlp_features, cnn_features, self.y_test_bin[batch_index])
+
+            print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, test_loss_batch, test_acc_batch * 100))
+            batch_id += 1
+
     def evaluate(self, mlp_features, cnn_features, y):
-        return self.loss.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:y}, session=self.sess)
+        return self.loss.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess)
 
     def get_accuracy(self, mlp_features, cnn_features, y):
-        return self.correct_predictions.eval(feed_dict={self.train_mlp_features:mlp_features, self.train_cnn_features:cnn_features, self.train_labels:y}, session=self.sess) / y.shape[0]
+        return self.correct_predictions.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess) / y.shape[0]
 
     def save(self):
-        model_input_mlp = tf.saved_model.utils.build_tensor_info(self.train_mlp_features)
-        model_input_cnn = tf.saved_model.utils.build_tensor_info(self.train_cnn_features)
+        model_input_mlp = tf.saved_model.utils.build_tensor_info(self.X_mlp_features)
+        model_input_cnn = tf.saved_model.utils.build_tensor_info(self.X_cnn_features)
         model_output = tf.saved_model.utils.build_tensor_info(self.label)
 
         signature_definition = tf.saved_model.signature_def_utils.build_signature_def(
@@ -223,5 +250,6 @@ if __name__ == '__main__':
     for train_index, test_index in skf:
         nn_instance.prepare_data(train_index, test_index)
         nn_instance.train()
+        nn_instance.test()
 
     nn_instance.save()

@@ -143,15 +143,15 @@ class NN:
         return tf.reshape(h_pool, [-1, embedded_length * 6])
 
     def build(self, learning_rate):
-        self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='mlp_features')
-        self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150), name='cnn_features')
+        self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197))
+        self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150))
         self.y_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
         self.keep_prob = tf.placeholder(tf.float32)
 
         NN_mlp = self.build_mlp(self.X_mlp_features, 197)
         NN_cnn = self.build_cnn(self.X_cnn_features, 322, 10)
-        h_concat = tf.concat([NN_mlp, NN_cnn], 1)
-        h_dropout = tf.nn.dropout(h_concat, self.keep_prob)
+        self.h_concat = tf.concat([NN_mlp, NN_cnn], 1)
+        h_dropout = tf.nn.dropout(self.h_concat, self.keep_prob)
 
         if not self.W_out:
             self.W_out = weight_variable([257, self.label_length])
@@ -159,9 +159,9 @@ class NN:
         if not self.b_out:
             self.b_out = bias_variable([self.label_length])
 
-        y_raw = tf.matmul(h_dropout, self.W_out) + self.b_out
+        y_raw = tf.nn.bias_add(tf.matmul(h_dropout, self.W_out), self.b_out)
         self.y_out = tf.nn.softmax(y_raw)
-        self.label = tf.argmax(self.y_out, 1, name='get_label')
+        self.label = tf.argmax(self.y_out, 1)
         self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.y_labels))
 
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
@@ -224,11 +224,13 @@ class NN:
     def save(self):
         model_input_mlp = tf.saved_model.utils.build_tensor_info(self.X_mlp_features)
         model_input_cnn = tf.saved_model.utils.build_tensor_info(self.X_cnn_features)
-        model_output = tf.saved_model.utils.build_tensor_info(self.label)
+        model_input_keep_prob = tf.saved_model.utils.build_tensor_info(self.keep_prob)
+        model_output_label = tf.saved_model.utils.build_tensor_info(self.label)
+        model_output_h_concat = tf.saved_model.utils.build_tensor_info(self.h_concat)
 
         signature_definition = tf.saved_model.signature_def_utils.build_signature_def(
-                inputs={'mlp_features': model_input_mlp, 'cnn_features': model_input_cnn},
-                outputs={'get_label': model_output},
+                inputs={'mlp_features': model_input_mlp, 'cnn_features': model_input_cnn, 'keep_prob': model_input_keep_prob},
+                outputs={'label': model_output_label, 'h_concat': model_output_h_concat},
                 method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
 
         builder = tf.saved_model.builder.SavedModelBuilder('./models/1')

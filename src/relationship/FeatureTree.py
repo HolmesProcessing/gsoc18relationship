@@ -12,19 +12,28 @@ from grpc.beta import implementations
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2
 from tensorflow.python.framework import tensor_util
+from collections import Counter
 
 tf.app.flags.DEFINE_string('server', 'localhost:9000', 'PredictionService host:port')
 FLAGS = tf.app.flags.FLAGS
 
+def encode_label(label):
+    labels = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
+    return labels.index(label)
+
 class FeatureTree:
     def __init__(self, file_path):
+        self.file_path = file_path
+
+    def prepare_data(self):
         self.X_cuckoo = []
         self.X_objdump = []
         self.X_peinfo = []
         self.X_richheader = []
         self.sha256 = []
+        self.label = []
 
-        objects = pickle.load(open(file_path, 'rb'))
+        objects = pickle.load(open(self.file_path, 'rb'))
 
         reader = feed_handling_pb2.TrainingData()
         for o in objects:
@@ -51,6 +60,7 @@ class FeatureTree:
                 self.X_richheader.append(np.array(map(float, reader.features_richheader)))
 
             self.sha256.append(reader.sha256)
+            self.label.append(encode_label(reader.label))
 
         self.cnn_features = np.array(self.X_cuckoo).astype(np.int32)
 
@@ -98,18 +108,49 @@ class FeatureTree:
 
         tree_f = open('ftree.p', 'wb')
         sha256_f = open('sha256.p', 'wb')
+        hf_f = open('hf.p', 'wb')
+        label_f = open('label.p', 'wb')
+
         pickle.dump(self.tree, tree_f)
         pickle.dump(self.sha256, sha256_f)
+        pickle.dump(self.hidden_features, hf_f)
+        pickle.dump(self.label, label_f)
+
         tree_f.close()
         sha256_f.close()
+        hf_f.close()
+        label_f.close()
 
         print('Everything is done and goes well! :)\n')
+
+    def evaluate(self):
+        self.tree = pickle.load(open('ftree.p', 'rb'))
+        self.sha256 = pickle.load(open('sha256.p', 'rb'))
+        self.hidden_features = pickle.load(open('hf.p', 'rb'))
+        self.label = pickle.load(open('label.p', 'rb'))
+
+        freqs = []
+
+        for j in range(len(self.label)):
+            dist, ind = self.tree.query(self.hidden_features[j,:].reshape(1, -1), k=10)
+
+            labels = []
+            for i in ind[0]:
+                labels.append(self.label[i])
+
+            freq = Counter(labels)
+            freqs.append(freq.most_common(1)[0][1])
+
+        print(Counter(freqs))
 
 def main(_):
     ft = FeatureTree('./objects.p')
 
+    ft.prepare_data()
     ft.get_hidden_features(FLAGS.server)
     ft.build_and_save_feature_tree()
+
+    ft.evaluate()
 
 if __name__ == '__main__':
     tf.app.run()

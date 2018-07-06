@@ -57,7 +57,7 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
             print('[Info] Start sending training data')
 
         for r in rows:
-            yield feed_handling_pb2.TrainingData(sha256=r.sha256, features_cuckoo=r.features_cuckoo, features_objdump=r.features_objdump, features_peinfo=r.features_peinfo, features_richheader=r.features_richheader, label=r.label)
+            yield feed_handling_pb2.TrainingData(sha256=r.sha256, features_cuckoo=r.features_cuckoo, features_objdump=r.features_objdump, features_peinfo=r.features_peinfo, features_richheader=r.features_richheader, label=r.labels)
 
         if self.verbose:
             print('[Info] Training data sent!')

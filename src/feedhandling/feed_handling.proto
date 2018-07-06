@@ -34,7 +34,7 @@ message TrainingData {
     repeated string features_objdump = 3;
     repeated string features_peinfo = 4;
     repeated string features_richheader = 5;
-    string label = 6;
+    repeated string labels = 6;
 }
 
 message Foo {

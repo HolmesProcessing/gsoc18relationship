@@ -8,7 +8,7 @@ import tensorflow as tf
 import feedhandling.feed_handling_pb2 as feed_handling_pb2
 
 from sklearn import preprocessing
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
 from sklearn.utils import shuffle
 from imblearn.over_sampling import RandomOverSampler
 from collections import Counter
@@ -28,12 +28,39 @@ def conv2d(x, W):
 def max_pool(x):
     return tf.nn.avg_pool(x, ksize=[1, 100, 1, 1], strides=[1, 100, 1, 1], padding='SAME')
 
-def encode_label(label):
-    labels = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
-    return labels.index(label)
+def encode_label(labels):
+    label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
+
+    switcher = {
+        'athena_variant': 20,   # CIA Malware
+        'betabot': 21,          # Hijacker
+        'blackshades': 22,      # Trojan
+        'darkcomet': 22,
+        'nitol': 22,
+        'shylock': 22,
+        'citadel_krebs':23,     # Zeus offshoot
+        'darkdoser':24,         # Password stealing tool
+        'dirtjumper':25,        # DDoS Bot
+        'expiro': 26,           # Virus
+        'gamarue': 27,          # Worm
+        'machbot': 28,          # Botnet
+        'pushdo': 28,
+        'simda': 28,
+        'yoyoddos2': 28
+    }
+
+    classifications = []
+
+    for l in labels:
+        classifications.append(label.index(l))
+
+    if len(classifications) == 1:
+        classifications.append(switcher.get(classifications[0], 29))
+
+    return classifications
 
 class NN:
-    def __init__(self, file_path, label_length, learning_rate=1e-3):
+    def __init__(self, file_path, labels_length, learning_rate=1e-3):
         self.X_cuckoo = []
         self.X_objdump = []
         self.X_peinfo = []
@@ -66,7 +93,7 @@ class NN:
             else:
                 self.X_richheader.append(np.array(map(float, reader.features_richheader)))
 
-            self.y.append(encode_label(reader.label))
+            self.y.append(encode_label(reader.labels))
 
         self.X_cuckoo = np.array(self.X_cuckoo)
         self.X_objdump = preprocessing.MinMaxScaler().fit_transform(self.X_objdump)
@@ -76,7 +103,7 @@ class NN:
         self.X = np.concatenate((self.X_cuckoo, self.X_objdump, self.X_peinfo, self.X_richheader), axis=1)
         self.y = np.array(self.y)
 
-        self.label_length = label_length
+        self.labels_length = labels_length
         self.W_out = None
         self.b_out = None
 
@@ -84,8 +111,8 @@ class NN:
         self.build(learning_rate)
 
     def split_train_test(self, num_splits, random_state):
-        skf = StratifiedKFold(n_splits=num_splits, random_state=random_state)
-        return skf.split(self.X, self.y)
+        kf = KFold(n_splits=num_splits, random_state=random_state)
+        return kf.split(self.X)
 
     def resample_training_data(self, random_state):
         ros = RandomOverSampler(random_state=random_state)
@@ -104,19 +131,21 @@ class NN:
         self.X_train, self.X_test = self.X[train_index], self.X[test_index]
         self.y_train, self.y_test = self.y[train_index], self.y[test_index]
 
-        self.resample_training_data(42)
+        #self.resample_training_data(42)
 
-        num_y_train = np.size(self.y_train)
-        self.y_train_bin = np.zeros((num_y_train, self.label_length))
+        num_y_train = self.y_train.shape[0]
+        self.y_train_bin = np.zeros((num_y_train, self.labels_length))
 
         for i in range(num_y_train):
-            self.y_train_bin[i, self.y_train[i]] = 1
+            self.y_train_bin[i, self.y_train[i][0]] = 1
+            self.y_train_bin[i, self.y_train[i][1]] = 1
 
-        num_y_test = np.size(self.y_test)
-        self.y_test_bin = np.zeros((num_y_test, self.label_length))
+        num_y_test = self.y_test.shape[0]
+        self.y_test_bin = np.zeros((num_y_test, self.labels_length))
 
         for i in range(num_y_test):
-            self.y_test_bin[i, self.y_test[i]] = 1
+            self.y_test_bin[i, self.y_test[i][0]] = 1
+            self.y_test_bin[i, self.y_test[i][1]] = 1
 
     def build_mlp(self, features, feature_length):
         W_ff_1 = weight_variable([feature_length, feature_length])
@@ -145,7 +174,7 @@ class NN:
     def build(self, learning_rate):
         self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197))
         self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150))
-        self.y_labels = tf.placeholder(tf.int8, shape=(None, self.label_length))
+        self.y_labels = tf.placeholder(tf.float32, shape=(None, self.labels_length))
         self.keep_prob = tf.placeholder(tf.float32)
 
         NN_mlp = self.build_mlp(self.X_mlp_features, 197)
@@ -154,21 +183,21 @@ class NN:
         h_dropout = tf.nn.dropout(self.h_concat, self.keep_prob)
 
         if not self.W_out:
-            self.W_out = weight_variable([257, self.label_length])
+            self.W_out = weight_variable([257, self.labels_length])
 
         if not self.b_out:
-            self.b_out = bias_variable([self.label_length])
+            self.b_out = bias_variable([self.labels_length])
 
         y_raw = tf.nn.bias_add(tf.matmul(h_dropout, self.W_out), self.b_out)
-        self.y_out = tf.nn.softmax(y_raw)
-        self.label = tf.argmax(self.y_out, 1)
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.y_out, labels=self.y_labels))
+        self.y_out = tf.nn.sigmoid(y_raw)
+        self.labels = tf.round(self.y_out)
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.y_out, labels=self.y_labels))
 
         self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
-        self.correct_prediction = tf.equal(self.label, tf.argmax(self.y_labels, 1))
-        self.correct_predictions = tf.reduce_sum(tf.cast(self.correct_prediction, tf.float32))
-        self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
+        correct_prediction = tf.equal(tf.round(self.y_out), tf.round(self.y_labels))
+        correct_predictions = tf.reduce_min(tf.cast(correct_prediction, tf.float32), 1)
+        self.accuracy = tf.reduce_mean(correct_predictions)
 
         self.init_op = tf.global_variables_initializer()
 
@@ -219,13 +248,13 @@ class NN:
         return self.loss.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess)
 
     def get_accuracy(self, mlp_features, cnn_features, y):
-        return self.correct_predictions.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess) / y.shape[0]
+        return self.accuracy.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess)
 
     def save(self):
         model_input_mlp = tf.saved_model.utils.build_tensor_info(self.X_mlp_features)
         model_input_cnn = tf.saved_model.utils.build_tensor_info(self.X_cnn_features)
         model_input_keep_prob = tf.saved_model.utils.build_tensor_info(self.keep_prob)
-        model_output_label = tf.saved_model.utils.build_tensor_info(self.label)
+        model_output_label = tf.saved_model.utils.build_tensor_info(self.labels)
         model_output_h_concat = tf.saved_model.utils.build_tensor_info(self.h_concat)
 
         signature_definition = tf.saved_model.signature_def_utils.build_signature_def(
@@ -245,11 +274,11 @@ class NN:
 
 
 if __name__ == '__main__':
-    nn_instance = NN("./objects.p", label_length=20)
+    nn_instance = NN("./objects.p", labels_length=30)
 
-    skf = nn_instance.split_train_test(3, 0)
+    kf = nn_instance.split_train_test(3, 0)
 
-    for train_index, test_index in skf:
+    for train_index, test_index in kf:
         nn_instance.prepare_data(train_index, test_index)
         nn_instance.train()
         nn_instance.test()

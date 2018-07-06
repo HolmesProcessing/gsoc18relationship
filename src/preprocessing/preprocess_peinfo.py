@@ -1,8 +1,8 @@
 import json
 
 peinfo_rdd = sqlContext.read.parquet(DF_LOCATION).rdd
-peinfo_results = peinfo_rdd.map(lambda x: (x.sha256, x.service_name, find_val_in_peinfo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
-peinfo_objects = peinfo_rdd.map(lambda x: (x.sha256, find_val_in_peinfo(x.results), convert_to_label(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
+peinfo_results = peinfo_rdd.map(lambda x: (x.sha256, x.service_name, find_val_in_peinfo(x.results), convert_to_labels(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
+peinfo_objects = peinfo_rdd.map(lambda x: (x.sha256, find_val_in_peinfo(x.results), convert_to_labels(x.source_tags)) if 'benign' not in x.source_tags else None).filter(bool)
 
 def find_val_in_peinfo(results):
     val_list = [0.0] * 16
@@ -30,16 +30,16 @@ def find_val_in_peinfo(results):
 
     return val_list
 
-def convert_to_label(source_tags):
+def convert_to_labels(source_tags):
     labels = source_tags[1:len(source_tags) - 1].split(',')
     labels.remove('malicious')
-    return labels[len(labels) - 1]
+    return labels
 
 peinfo_df = peinfo_results.toDF()
-peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "service_name").withColumnRenamed("_3", "features").withColumnRenamed("_4", "label")
+peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "service_name").withColumnRenamed("_3", "features").withColumnRenamed("_4", "labels")
 peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_RESULTS, keyspace=KEYSPACE).save()
 
 peinfo_df = peinfo_objects.toDF()
-peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "features_peinfo").withColumnRenamed("_3", "label")
+peinfo_df = peinfo_df.withColumnRenamed("_1", "sha256").withColumnRenamed("_2", "features_peinfo").withColumnRenamed("_3", "labels")
 peinfo_df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table=PREPROCESSING_OBJECTS, keyspace=KEYSPACE).save()
 

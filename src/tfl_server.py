@@ -14,9 +14,9 @@ _ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
 def train_model():
     nn_instance = NN("./objects.p", label_length=20)
-    skf = nn_instance.split_train_test(3, 0)
+    kf = nn_instance.split_train_test(3, 0)
 
-    for train_index, test_index in skf:
+    for train_index, test_index in kf:
         nn_instance.prepare_data(train_index, test_index)
         nn_instance.train()
 

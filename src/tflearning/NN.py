@@ -55,7 +55,7 @@ def encode_label(labels):
         classifications.append(label.index(l))
 
     if len(classifications) == 1:
-        classifications.append(switcher.get(classifications[0], 29))
+        classifications.append(switcher.get(label[classifications[0]], 29))
 
     return classifications
 
@@ -115,23 +115,31 @@ class NN:
         return kf.split(self.X)
 
     def resample_training_data(self, random_state):
+        y_enc = np.add(np.multiply(self.y_train[:,0], 100), self.y_train[:,1])
+
         ros = RandomOverSampler(random_state=random_state)
-        X_res, y_res = ros.fit_sample(self.X_train, self.y_train)
+        X_res, y_res = ros.fit_sample(self.X_train, y_enc)
         X_res, y_res = shuffle(X_res, y_res, random_state=0)
 
         print('Initial shape: {0}'.format(self.X_train.shape))
         print('Resulting shape: {0}'.format(X_res.shape))
-        print('Initial dataset shape {}'.format(Counter(self.y_train)))
+        print('Initial dataset shape {}'.format(Counter(y_enc)))
         print('Resampled dataset shape {}'.format(Counter(y_res)))
 
+        def decode(c, d):
+            return ((c - c % d) / d), (c % d)
+
+        vf = np.vectorize(decode)
+        y_dec = np.concatenate(vf(y_res.reshape(-1, 1), 100), axis=1)
+
         self.X_train = X_res
-        self.y_train = y_res
+        self.y_train = y_dec
 
     def prepare_data(self, train_index, test_index):
         self.X_train, self.X_test = self.X[train_index], self.X[test_index]
         self.y_train, self.y_test = self.y[train_index], self.y[test_index]
 
-        #self.resample_training_data(42)
+        self.resample_training_data(42)
 
         num_y_train = self.y_train.shape[0]
         self.y_train_bin = np.zeros((num_y_train, self.labels_length))

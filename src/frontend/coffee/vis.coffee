@@ -78,8 +78,8 @@ RadialPlacement = () ->
     return placement
 
 Network = () ->
-    width = 960
-    height = 800
+    width = 720
+    height = 600
 
     allData = []
     curLinksData = []
@@ -99,7 +99,9 @@ Network = () ->
     groupCenters = null
 
     force = d3.layout.force()
-    nodeColors = d3.scale.category20c()
+    nodeColors = d3.scale.linear()
+                 .domain([0, 20])
+                 .range(["white", "black"]);
     tooltip = Tooltip("vis-tooltip", 520)
 
     charge = (node) -> -Math.pow(node.radius, 2.0) / 2
@@ -184,8 +186,7 @@ Network = () ->
         update()
 
     setupData = (data) ->
-        countExtent = d3.extent(data.nodes, (d) -> (1 - d.match) * 10)
-        circleRadius = d3.scale.sqrt().range([3, 12]).domain(countExtent)
+        circleRadius = d3.scale.sqrt().range([3, 12]).domain([0, 10])
 
         data.nodes.forEach (n) ->
             n.x = randomnumber=Math.floor(Math.random() * width)
@@ -252,7 +253,7 @@ Network = () ->
     updateCenters = (samples) ->
         if layout == "radial"
             groupCenters = RadialPlacement().center({"x":width/2, "y":height / 2 - 100})
-                .radius(300).increment(18).keys(samples)
+                .radius(250).increment(18).keys(samples)
 
     filterLinks = (allLinks, curNodes) ->
         curNodes = mapNodes(curNodes)
@@ -337,7 +338,7 @@ Network = () ->
     moveToRadialLayout = (alpha) ->
         k = alpha * 0.1
         (d) ->
-            centerNode = groupCenters(d.artist)
+            centerNode = groupCenters(d.labels)
             d.x += (centerNode.x - d.x) * k
             d.y += (centerNode.y - d.y) * k
 
@@ -348,7 +349,9 @@ Network = () ->
     showDetails = (d,i) ->
         content = '<p class="main">' + d.name + '</span></p>'
         content += '<hr class="tooltip-hr">'
-        content += '<p class="main">' + d.artist + '</span></p>'
+        content += '<p class="main">' + d.labels + '</span></p>'
+        content += '<hr class="tooltip-hr">'
+        content += '<p class="main">' + d.features + '</span></p>'
         tooltip.showTooltip(content,d3.event)
 
         if link
@@ -393,10 +396,10 @@ $ ->
         activate("layouts", newLayout)
         malwareNetwork.toggleLayout(newLayout)
 
-    d3.selectAll("#filters a").on "click", (d) ->
-        toggleFilter = d3.select(this).attr("id")
-        activateFilters("filters", toggleFilter)
-        malwareNetwork.toggleFilter(toggleFilter)
+    #d3.selectAll("#filters a").on "click", (d) ->
+    #    toggleFilter = d3.select(this).attr("id")
+    #    activateFilters("filters", toggleFilter)
+    #    malwareNetwork.toggleFilter(toggleFilter)
 
     d3.selectAll("#sorts a").on "click", (d) ->
         newSort = d3.select(this).attr("id")
@@ -406,19 +409,20 @@ $ ->
     $("#sample_search").on "change", (e) ->
         sampleSha256 = $(this).val()
         if sampleSha256.length == 64
-            relationship_query = new proto.feedhandling.Query();
-            relationship_query.setSha256(sampleSha256);
+            relationship_query = new proto.feedhandling.Query()
+            relationship_query.setSha256(sampleSha256)
 
             nodes = []
             links = []
 
-            stream = service.queryRelationship(relationship_query, {});
+            stream = service.queryRelationship(relationship_query, {})
             stream.on "data", (response) ->
                 node =
                     id: response.getSha256()
                     name: response.getSha256()
-                    artist: response.getLabelsList().join()
+                    labels: response.getLabelsList().join()
                     match: response.getDistance()
+                    features: response.getFeaturesList().join("")
                 nodes.push node
 
                 if sampleSha256 != response.getSha256()
@@ -427,7 +431,7 @@ $ ->
                         target: response.getSha256()
                     links.push link
 
-                if nodes.length == 25
+                if nodes.length == 20
                     relationships =
                         nodes: nodes
                         links: links

@@ -9,47 +9,37 @@
 
   <title>Malware Relationship Demo</title>
 
-  <meta name="description" content="Demo for malware relationships">
+  <meta name="description" content="GSoC 2018: Holmes Processing: Automated Malware Relationship Mining">
   <meta name="viewport" content="width=device-width,initial-scale=1">
 
   <link rel="stylesheet" href="css/reset.css">
   <link rel="stylesheet" href="css/bootstrap.min.css">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://code.jquery.com/ui/1.10.4/themes/ui-lightness/jquery-ui.css">
 
+  <script src="https://code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="https://code.jquery.com/ui/1.10.4/jquery-ui.js"></script>
   <script src="js/libs/modernizr-2.0.6.min.js"></script>
+  <script type="text/javascript" src="grpc-js/compiled.js"></script>
 </head>
 
 <body>
   <div id="container" class="container">
     <header>
-      <h1 center>Malware Relationship Demo</h1>
+      <h1 center>Holmes Processing: Automated Malware Relationship Mining</h1>
     </header>
 
-    <div id="btn_controls" class="control">
+    <div id="btn_controls">
       <button type="button" class="btn btn-primary" disabled>Submit new samples</button>
-      <button type="button" class="btn btn-secondary" disabled>Retrain learning model</button>
+      <button type="button" id="retrain_btn" class="btn btn-secondary">Retrain learning model</button>
     </div>
 
     <div id="controls">
-      <div id="layouts" class="control">
-        <h3>Layout</h3>
-        <a id="force" class="active">Default</a>
-        <a id="radial">Type</a>
-      </div>
-
-      <div id="filters" class="control">
-        <h3>Filters</h3>
-	<a id="cuckoo" class="active">Cuckoo</a>
-	<a id="objdump" class="active">Objdump</a>
-        <a id="peinfo" class="active">PEInfo</a>
-        <a id="richheader" class="active">Rich Header</a>
-        <a id="label" class="active">label</a>
-      </div>
-
-      <div id="sorts" class="control">
-        <h3>Sort</h3>
-        <a id="sha256">sha256</a>
-        <a id="score">score</a>
+      <div id="sample_selection" class="control">
+        <h3>Sample</h3>
+          <form id="sample_form" action="">
+            <p class="search_title"><input type="text" class="text-input" id="sample_search" value="" /></p>
+          </form>
       </div>
 
       <div id="search_section" class="control">
@@ -58,11 +48,13 @@
         </form>
       </div>
 
-      <div id="sample_selection" class="control">
-        <h3>Sample</h3>
-          <form id="sample_form" action="">
-            <p class="search_title"><input type="text" class="text-input" id="sample_search" value="" /></p>
-          </form>
+      <div id="filters" class="control">
+        <h3>Filters</h3>
+          <a id="cuckoo" class="active">Cuckoo</a>
+          <a id="objdump" class="active">Objdump</a>
+          <a id="peinfo" class="active">PEInfo</a>
+          <a id="richheader" class="active">Rich Header</a>
+          <a id="label" class="active">label</a>
       </div>
 
       <div id="main" role="main">
@@ -82,6 +74,8 @@
   <script src="js/libs/d3.v2.js"></script>
   <script src="js/Tooltip.js"></script>
   <script type="text/coffeescript" src="coffee/vis.coffee"></script>
+  <script type="text/javascript" src="js/utils.js"></script>
+  <script type="text/javascript" src="js/sha256.js"></script>
 
   <!--[if lt IE 7 ]>
     <script src="//ajax.googleapis.com/ajax/libs/chrome-frame/1.0.3/CFInstall.min.js"></script>

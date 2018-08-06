@@ -23,6 +23,11 @@ a, a:visited {
   margin-bottom: 10px;
 }
 
+#btn_controls {
+  display: block;
+  text-align: center;
+}
+
 .control {
   float: left;
   padding-left: 20px;
@@ -107,5 +112,9 @@ hr.tooltip-hr {
 line.link {
   fill: none;
   stroke-width: 1.5px;
+}
+
+#sample_search {
+  width: 460px;
 }
 

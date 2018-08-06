@@ -3,6 +3,9 @@ sys.path.append('../')
 
 import pickle
 import random
+import time
+import glob
+import os
 import numpy as np
 import tensorflow as tf
 import feedhandling.feed_handling_pb2 as feed_handling_pb2
@@ -62,6 +65,10 @@ def encode_label(labels):
 
     return classifications
 
+def get_latest_model():
+    models = glob.glob('./models/*')
+    return max(models, key=os.path.getctime)
+
 class NN:
     def __init__(self, file_path, labels_length, learning_rate=0.01):
         X_cuckoo = []
@@ -113,11 +120,11 @@ class NN:
         self.y_enc = np.add(np.multiply(y[:,0], 100), y[:,1])
 
         self.labels_length = labels_length
+        self.learning_rate = learning_rate
         self.W_out = None
         self.b_out = None
 
         tf.set_random_seed(1337)
-        self.build(learning_rate)
 
     def split_train_test(self, num_splits, random_state):
         skf = StratifiedKFold(n_splits=num_splits, random_state=random_state)
@@ -195,11 +202,11 @@ class NN:
 
         return tf.reshape(h_pool_2, [-1, embedded_length * 6])
 
-    def build(self, learning_rate):
-        self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197))
-        self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150))
-        self.y_labels = tf.placeholder(tf.float32, shape=(None, self.labels_length))
-        self.keep_prob = tf.placeholder(tf.float32)
+    def build(self):
+        self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='X_mlp_features')
+        self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150), name='X_cnn_features')
+        self.y_labels = tf.placeholder(tf.float32, shape=(None, self.labels_length), name='y_labels')
+        self.keep_prob = tf.placeholder(tf.float32, name='keep_prob')
 
         NN_mlp = self.build_mlp(self.X_mlp_features, 197)
         NN_cnn = self.build_cnn(self.X_cnn_features, 322, 10)
@@ -212,16 +219,16 @@ class NN:
         if not self.b_out:
             self.b_out = bias_variable([self.labels_length])
 
-        self.y_raw = tf.nn.bias_add(tf.matmul(h_dropout, self.W_out), self.b_out)
+        self.y_raw = tf.nn.bias_add(tf.matmul(h_dropout, self.W_out), self.b_out, name='y_raw')
         y_out = tf.nn.sigmoid(self.y_raw)
-        self.labels = tf.round(y_out)
-        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.y_raw, labels=self.y_labels))
+        self.labels = tf.round(y_out, name='labels')
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.y_raw, labels=self.y_labels), name='loss')
 
-        self.train_opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
+        self.train_opt = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
         correct_prediction = tf.equal(self.labels, tf.round(self.y_labels))
         correct_predictions = tf.reduce_min(tf.cast(correct_prediction, tf.float32), 1)
-        self.accuracy = tf.reduce_mean(correct_predictions)
+        self.accuracy = tf.reduce_mean(correct_predictions, name='accuracy')
 
         self.init_op = tf.global_variables_initializer()
 
@@ -240,7 +247,6 @@ class NN:
         self.sess = tf.Session()
         self.sess.run(self.init_op)
 
-        N = self.X_train.shape[0]
         for epoch in range(num_epochs):
             print('Epoch %2d/%2d: ' % (epoch + 1, num_epochs))
 
@@ -257,7 +263,6 @@ class NN:
 
     def test(self, batch_size=100):
         print('Start testing ...')
-        N = self.X_test.shape[0]
 
         for batch_id, batch in enumerate(self.load_dataset_test(batch_size)):
             X_test, y_test_bin = batch
@@ -292,7 +297,7 @@ class NN:
                 outputs={'label': model_output_label, 'y_raw': model_output_y_raw},
                 method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
 
-        builder = tf.saved_model.builder.SavedModelBuilder('./models/1')
+        builder = tf.saved_model.builder.SavedModelBuilder('./models/' + str(int(time.time())))
 
         builder.add_meta_graph_and_variables(self.sess, [tf.saved_model.tag_constants.SERVING],
                                 signature_def_map={
@@ -302,9 +307,42 @@ class NN:
 
         builder.save()
 
+    def restore(self):
+        self.sess = tf.Session()
+        tf.saved_model.loader.load(self.sess, [tf.saved_model.tag_constants.SERVING], get_latest_model())
+
+        self.X_mlp_features = tf.get_default_graph().get_tensor_by_name('X_mlp_features:0')
+        self.X_cnn_features = tf.get_default_graph().get_tensor_by_name('X_cnn_features:0')
+        self.y_labels = tf.get_default_graph().get_tensor_by_name('y_labels:0')
+        self.keep_prob = tf.get_default_graph().get_tensor_by_name('keep_prob:0')
+
+        self.loss = tf.get_default_graph().get_tensor_by_name('loss:0')
+        self.accuracy = tf.get_default_graph().get_tensor_by_name('accuracy:0')
+        self.train_opt = tf.get_default_graph().get_tensor_by_name('Variable/Adam:0')
+        self.labels = tf.get_default_graph().get_tensor_by_name('labels:0')
+        self.y_raw = tf.get_default_graph().get_tensor_by_name('y_raw:0')
+
+    def retrain(self, num_epochs=10, batch_size=100):
+        print('Start retraining ...')
+
+        for epoch in range(num_epochs):
+            print('Epoch %2d/%2d: ' % (epoch + 1, num_epochs))
+
+            for batch_id, batch in enumerate(self.load_dataset_train(batch_size)):
+                X_train, y_train_bin = batch
+                cnn_features, mlp_features = np.hsplit(X_train, [150])
+
+                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.y_labels:y_train_bin, self.keep_prob:0.9})
+
+                train_loss_batch = self.evaluate(mlp_features, cnn_features, y_train_bin)
+                train_acc_batch = self.get_accuracy(mlp_features, cnn_features, y_train_bin)
+
+                print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, train_loss_batch, train_acc_batch * 100))
+
 
 if __name__ == '__main__':
     nn_instance = NN("./objects.p", labels_length=29)
+    nn_instance.build()
 
     skf = nn_instance.split_train_test(3, 0)
 

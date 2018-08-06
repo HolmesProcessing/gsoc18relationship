@@ -3,7 +3,11 @@ from concurrent import futures
 import time
 import grpc
 import argparse
+import os
 import pickle
+import shlex
+import signal
+import subprocess
 import tensorflow as tf
 
 from feedhandling import feed_handling_pb2
@@ -21,12 +25,14 @@ tf.app.flags.DEFINE_string('server', 'localhost:9000', 'PredictionService host:p
 FLAGS = tf.app.flags.FLAGS
 
 def train_model():
-    nn_instance = NN("./objects.p", label_length=20)
+    nn_instance = NN("./objects.p", label_length=29)
+    nn_instance.restore()
+
     skf = nn_instance.split_train_test(3, 0)
 
     for train_index, test_index in skf:
         nn_instance.prepare_data(train_index, test_index)
-        nn_instance.train()
+        nn_instance.retrain()
 
     return nn_instance
 
@@ -62,7 +68,8 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
     def __init__(self, verbose):
         self.verbose = verbose
 
-        # start tensorflow_model_server
+        self.args = shlex.split('tensorflow_model_server --port=9000 --model_name=malware --model_base_path=MODEL_ABSOLUTE_PATH')
+        self.proc = subprocess.Popen(self.args)
 
     def PredictLabel(self, request, context):
         if self.verbose:
@@ -125,7 +132,8 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
         if self.verbose:
             print('[Info] Training done!')
 
-        # restart tensorflow_model_server
+        os.kill(self.proc.pid, signal.SIGKILL)
+        self.proc = subprocess.Popen(self.args)
 
         return tf_learning_pb2.Empty()
 

@@ -16,12 +16,15 @@ service FeedHandling {
 
 message Query {
     string timestamp = 1;
-    repeated string sha256 = 2;
+    string sha256 = 2;
     repeated string indicators = 3;
 }
 
 message Relationships {
     string sha256 = 1;
+    repeated string labels = 2;
+    double distance = 3;
+    repeated string features = 4;
 }
 
 message Sample {

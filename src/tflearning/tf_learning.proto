@@ -6,8 +6,8 @@ option objc_class_prefix = "TFL";
 package tflearning;
 
 service TFLearning {
-    rpc PredictLabel(stream Features) returns (stream Label) {}
-    rpc GetRelationships(stream Indicators) returns (stream Relationships) {}
+    rpc PredictLabel(stream Features) returns (stream Labels) {}
+    rpc GetRelationships(Query) returns (stream Relationships) {}
     rpc TrainModel(Empty) returns (Empty) {}
     rpc Echo(Foo) returns (Foo) {}
 }
@@ -19,16 +19,20 @@ message Features {
     repeated string features_richheader = 4;
 }
 
-message Label {
-    string label = 1;
+message Labels {
+    repeated string labels = 1;
 }
 
-message Indicators {
-    string sha256 = 1;
+message Query {
+    string timestamp = 1;
+    string sha256 = 2;
+    repeated string indicators = 3;
 }
 
 message Relationships {
     string sha256 = 1;
+    repeated string labels = 2;
+    double distance = 3;
 }
 
 message Foo {

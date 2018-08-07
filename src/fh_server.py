@@ -14,25 +14,25 @@ from tflearning import tf_learning_pb2_grpc
 
 _ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
-def connect_to_storage():
-    auth_provider = PlainTextAuthProvider(username=USERNAME, password=PASSWORD)
-    cluster = Cluster(LIST_OF_CLUSTERS, port=PORT, auth_provider=auth_provider)
+def connect_to_storage(auth_username, auth_password, cluster_ip, cluster_port):
+    auth_provider = PlainTextAuthProvider(username=auth_username, password=auth_password)
+    cluster = Cluster(cluster_ip, port=cluster_port, auth_provider=auth_provider)
     session = cluster.connect()
-    session.set_keyspace(KEYSPACE)
+    session.set_keyspace('gsoc3')
 
     return session
 
-def connect_to_tfl_server():
-    channel = grpc.insecure_channel('localhost:9091')
+def connect_to_tfl_server(tfl_addr):
+    channel = grpc.insecure_channel(tfl_addr)
     return tf_learning_pb2_grpc.TFLearningStub(channel)
 
-def get_training_data_from_storage():
-    session = connect_to_storage()
+def get_training_data_from_storage(auth_username, auth_password, cluster_ip, cluster_port):
+    session = connect_to_storage(auth_username, auth_password, cluster_ip, cluster_port)
 
     return session.execute('SELECT * FROM preprocessing_objects')
 
-def get_features_from_storage(sha256):
-    session = connect_to_storage()
+def get_features_from_storage(sha256, auth_username, auth_password, cluster_ip, cluster_port):
+    session = connect_to_storage(auth_username, auth_password, cluster_ip, cluster_port)
 
     return session.execute('SELECT * FROM preprocessing_results where sha256=\'' + sha256 + '\' and service_name=\'peinfo\'')
 
@@ -48,15 +48,20 @@ def update_checkpoint(latest_timestamp):
 
 
 class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
-    def __init__(self, verbose):
-        self.verbose = verbose
+    def __init__(self, args):
+        self.verbose = args.verbose
+        self.tfl_addr = args.tfl_addr
+        self.cluster_ip = args.cluster_ip
+        self.cluster_port = args.cluster_port
+        self.auth_username = args.auth_username
+        self.auth_password = args.auth_password
 
     def QueryRelationship(self, request, context):
         if self.verbose:
             print('[Request] QueryRelationship()')
             print('[Info] Query the relationship tree')
 
-        stub = connect_to_tfl_server()
+        stub = connect_to_tfl_server(self.tfl_addr)
         relationships = stub.GetRelationships(tf_learning_pb2.Query(sha256=request.sha256))
 
         i = 0
@@ -64,7 +69,7 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
             timestamp = 0
 
             try:
-                features = get_features_from_storage(r.sha256)[0].features
+                features = get_features_from_storage(r.sha256, self.auth_username, self.auth_password, self.cluster_ip, self.cluster_port)[0].features
                 timestamp = str(datetime.fromtimestamp(float(features[16])))
             except:
                 pass
@@ -86,7 +91,7 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
             print('[Request] InitiateTraining()')
             print('[Info] Initiate training the learning model')
 
-        stub = connect_to_tfl_server()
+        stub = connect_to_tfl_server(self.tfl_addr)
         stub.TrainModel(tf_learning_pb2.Empty())
 
         if self.verbose:
@@ -99,7 +104,7 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
             print('[Request] GetTrainingData()')
             print('[Info] Start fetching training data from storage')
 
-        rows = get_training_data_from_storage()
+        rows = get_training_data_from_storage(self.auth_username, self.auth_password, self.cluster_ip, self.cluster_port)
 
         if self.verbose:
             print('[Info] Training data fetched!')
@@ -134,13 +139,13 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
 
         return feed_handling_pb2.Foo(msg=request.msg)
 
-def serve(verbose):
+def serve(args):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    feed_handling_pb2_grpc.add_FeedHandlingServicer_to_server(FeedHandlingServicer(verbose), server)
-    server.add_insecure_port('[::]:9090')
+    feed_handling_pb2_grpc.add_FeedHandlingServicer_to_server(FeedHandlingServicer(args), server)
+    server.add_insecure_port('[::]:%s' % args.port)
     server.start()
 
-    if verbose:
+    if args.verbose:
         print('[Info] Feed handling server init')
 
     try:
@@ -153,6 +158,13 @@ def serve(verbose):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='python fh_server.py', description='Feed handling server')
     parser.add_argument('-v', '--verbose', help='Verbose mode', action='store_true')
+    parser.add_argument('-p', '--port', help='Listening port for feed handling server')
+    parser.add_argument('--tfl-addr', help='Address of tensorflow learning server')
+    parser.add_argument('--cluster-ip', help='IPs of clusters', nargs='*')
+    parser.add_argument('--cluster-port', help='Port of clusters')
+    parser.add_argument('--auth-username', help='Username for clusters\' authentication')
+    parser.add_argument('--auth-password', help='Password for clusters\' authentication')
+
     args = parser.parse_args()
 
-    serve(args.verbose)
+    serve(args)

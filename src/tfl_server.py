@@ -18,7 +18,6 @@ from tflearning.NN import NN
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2
 from tensorflow.python.framework import tensor_util
-import get_training_data
 
 _ONE_DAY_IN_SECONDS = 60 * 60 * 24
 tf.app.flags.DEFINE_string('server', 'localhost:9000', 'PredictionService host:port')
@@ -36,6 +35,10 @@ def train_model():
 
     return nn_instance
 
+def connect_to_fh_server(fh_addr):
+    channel = grpc.insecure_channel(fh_addr)
+    return feed_handling_pb2_grpc.FeedHandlingStub(channel)
+
 def convert_to_name(labels):
     label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2', 'CIA Malware', 'Hijacker', 'Trojan', 'Zeus offshoot', 'Password stealing tool', 'DDoS Bot', 'Virus', 'Worm', 'Botnet']
 
@@ -46,7 +49,7 @@ def convert_to_name(labels):
 
     return names
 
-def get_hidden_features(self, hostport, mlp_features, cnn_features):
+def get_hidden_features(hostport, mlp_features, cnn_features):
     host, port = hostport.split(':')
     channel = implementations.insecure_channel(host, int(port))
     stub = prediction_service_pb2.beta_create_PredictionService_stub(channel)
@@ -63,13 +66,26 @@ def get_hidden_features(self, hostport, mlp_features, cnn_features):
 
     return tensor_util.MakeNdarray(response.outputs['label'])
 
+def get_training_data(fh_addr):
+    stub = connect_to_tfl_server(tfl_addr)
+    rows = stub.GetTrainingData(feed_handling_pb2.Empty())
+
+    object_list = []
+
+    for r in rows:
+        object_list.append(r.SerializeToString())
+
+    f = open('objects.p', 'wb')
+    pickle.dump(object_list, f)
+    f.close()
 
 class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
-    def __init__(self, verbose):
-        self.verbose = verbose
+    def __init__(self, args):
+        self.verbose = args.verbose
+        self.fh_addr = args.fh_addr
 
-        self.args = shlex.split('tensorflow_model_server --port=9000 --model_name=malware --model_base_path=MODEL_ABSOLUTE_PATH')
-        self.proc = subprocess.Popen(self.args)
+        self.command_args = shlex.split('tensorflow_model_server --port=9000 --model_name=malware --model_base_path=' + args.model_path)
+        self.proc = subprocess.Popen(self.command_args)
 
     def PredictLabel(self, request, context):
         if self.verbose:
@@ -120,7 +136,7 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
             print('[Request] TrainModel()')
             print('[Info] Start fetching training data')
 
-        get_training_data.run()
+        get_training_data(self.fh_addr)
 
         if self.verbose:
             print('[Info] Training data fetched!')
@@ -133,7 +149,7 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
             print('[Info] Training done!')
 
         os.kill(self.proc.pid, signal.SIGKILL)
-        self.proc = subprocess.Popen(self.args)
+        self.proc = subprocess.Popen(self.command_args)
 
         return tf_learning_pb2.Empty()
 
@@ -143,13 +159,13 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
 
         return tf_learning_pb2.Foo(msg=request.msg)
 
-def serve(verbose):
+def serve(args):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    tf_learning_pb2_grpc.add_TFLearningServicer_to_server(TFLearningServicer(verbose), server)
-    server.add_insecure_port('[::]:9091')
+    tf_learning_pb2_grpc.add_TFLearningServicer_to_server(TFLearningServicer(args), server)
+    server.add_insecure_port('[::]:%s' % args.port)
     server.start()
 
-    if verbose:
+    if args.verbose:
         print('[Info] Tensorflow learning server init')
 
     try:
@@ -162,6 +178,10 @@ def serve(verbose):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='python tfl_server.py', description='Tensorflow learning server')
     parser.add_argument('-v', '--verbose', help='Verbose mode', action='store_true')
+    parser.add_argument('-p', '--port', help='Listening port for tensorflow learning server')
+    parser.add_argument('--fh-addr', help='Address of feed handling server')
+    parser.add_argument('--model-path', help='Location of the learning model')
+
     args = parser.parse_args()
 
-    serve(args.verbose)
+    serve(args)

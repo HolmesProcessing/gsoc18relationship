@@ -146,7 +146,7 @@ usage: python fh_server.py [-h] [-v] [-p PORT] [--tfl-addr TFL_ADDR]
                            [--cluster-ip [CLUSTER_IP [CLUSTER_IP ...]]]
                            [--cluster-port CLUSTER_PORT]
                            [--auth-username AUTH_USERNAME]
-                           [--auth-password AUTH_PASSWORD]
+                           [--auth-password AUTH_PASSWORD] [--offline]
 
 Feed handling server
 
@@ -163,13 +163,14 @@ optional arguments:
                         Username for clusters' authentication
   --auth-password AUTH_PASSWORD
                         Password for clusters' authentication
+  --offline             Offline mode
 ```
 
 #### Tensorflow serving
 
 ```
 usage: python tfl_server.py [-h] [-v] [-p PORT] [--fh-addr FH_ADDR]
-                            [--model-path MODEL_PATH]
+                            [--model-path MODEL_PATH] [--offline]
 
 Tensorflow learning server
 
@@ -180,6 +181,7 @@ optional arguments:
   --fh-addr FH_ADDR     Address of feed handling server
   --model-path MODEL_PATH
                         Location of the learning model
+  --offline             Offline mode
 ```
 
 #### Frontend
@@ -206,3 +208,27 @@ $ cd src/frontend/grpc-web/gConnector && ./nginx.sh &
 ```
 
 Afterwards, view the visualization of relationships in <http://localhost:9090/index.html>.
+
+## Testing
+
+1. Copy and put all the necessary sample data into `src/relationship`
+
+```sh
+cp tests/*.p src/relationship
+```
+
+2. Run feed handling and Tensorflow learning servers
+
+```sh
+$ python fh_server.py -v -p 9090 --tfl-addr localhost:9091 --offline
+$ python tfl_server.py -v -p 9091 --fh-addr localhost:9090 --offline
+```
+
+3. Run the Nginx service
+
+```sh
+$ cp src/frontend/nginx.conf src/frontend/grpc-web/gConnector/conf
+$ cd src/frontend/grpc-web/gConnector && ./nginx.sh &
+```
+
+4. Play around the relationships of sample data in <http://localhost:9090/index.html>.

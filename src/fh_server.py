@@ -60,10 +60,13 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
     def __init__(self, args):
         self.verbose = args.verbose
         self.tfl_addr = args.tfl_addr
-        self.cluster_ip = args.cluster_ip
-        self.cluster_port = args.cluster_port
-        self.auth_username = args.auth_username
-        self.auth_password = args.auth_password
+        self.offline = args.offline
+
+        if not self.offline:
+            self.cluster_ip = args.cluster_ip
+            self.cluster_port = args.cluster_port
+            self.auth_username = args.auth_username
+            self.auth_password = args.auth_password
 
     def QueryRelationship(self, request, context):
         if self.verbose:
@@ -79,15 +82,16 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
         for r in relationships:
             timestamp = 0
 
-            try:
-                features = get_features_from_storage(r.sha256,
-                                                     self.auth_username,
-                                                     self.auth_password,
-                                                     self.cluster_ip,
-                                                     self.cluster_port)[0].features
-                timestamp = str(datetime.fromtimestamp(float(features[16])))
-            except:
-                pass
+            if not self.offline:
+                try:
+                    features = get_features_from_storage(r.sha256,
+                                                         self.auth_username,
+                                                         self.auth_password,
+                                                         self.cluster_ip,
+                                                         self.cluster_port)[0].features
+                    timestamp = str(datetime.fromtimestamp(float(features[16])))
+                except:
+                    pass
 
             yield feed_handling_pb2.Relationships(sha256=r.sha256,
                                                   labels=r.labels,
@@ -105,6 +109,9 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
         pass
 
     def InitiateTraining(self, request, context):
+        if self.offline:
+            return feed_handling_pb2.Empty()
+
         if self.verbose:
             print('[Request] InitiateTraining()')
             print('[Info] Initiate training the learning model')
@@ -191,6 +198,7 @@ def main():
                         help='Username for clusters\' authentication')
     parser.add_argument('--auth-password',
                         help='Password for clusters\' authentication')
+    parser.add_argument('--offline', help='Offline mode', action='store_true')
 
     args = parser.parse_args()
 

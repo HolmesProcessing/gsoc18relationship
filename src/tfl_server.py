@@ -94,11 +94,13 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
     def __init__(self, args):
         self.verbose = args.verbose
         self.fh_addr = args.fh_addr
+        self.offline = args.offline
 
-        self.command_args = shlex.split(
-            'tensorflow_model_server --port=9000 --model_name=malware --model_base_path='
-            + args.model_path)
-        self.proc = subprocess.Popen(self.command_args)
+        if not self.offline:
+            self.command_args = shlex.split(
+                'tensorflow_model_server --port=9000 --model_name=malware --model_base_path='
+                + args.model_path)
+            self.proc = subprocess.Popen(self.command_args)
 
     def PredictLabel(self, request, context):
         if self.verbose:
@@ -202,6 +204,7 @@ def main():
     parser.add_argument('-p', '--port', help='Listening port for tensorflow learning server')
     parser.add_argument('--fh-addr', help='Address of feed handling server')
     parser.add_argument('--model-path', help='Location of the learning model')
+    parser.add_argument('--offline', help='Offline mode', action='store_true')
 
     args = parser.parse_args()
 

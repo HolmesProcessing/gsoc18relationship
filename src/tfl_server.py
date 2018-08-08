@@ -170,6 +170,8 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
         os.kill(self.proc.pid, signal.SIGKILL)
         self.proc = subprocess.Popen(self.command_args)
 
+        os.system('python relationship/FeatureTree.py')
+
         return tf_learning_pb2.Empty()
 
     def Echo(self, request, context):

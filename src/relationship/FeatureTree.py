@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../')
+sys.path.append('./')
 
 import pickle
 import numpy as np
@@ -170,11 +170,11 @@ class FeatureTree:
         print('Start building and saving the feature tree ...\n')
         self.tree = KDTree(self.hidden_features, leaf_size=29)
 
-        tree_f = open('ftree.p', 'wb')
-        sha256_f = open('sha256.p', 'wb')
-        hf_f = open('hf.p', 'wb')
-        labels_f = open('labels.p', 'wb')
-        predicted_labels_f = open('predicted_labels.p', 'wb')
+        tree_f = open('relationship/ftree.p', 'wb')
+        sha256_f = open('relationship/sha256.p', 'wb')
+        hf_f = open('relationship/hf.p', 'wb')
+        labels_f = open('relationship/labels.p', 'wb')
+        predicted_labels_f = open('relationship/predicted_labels.p', 'wb')
 
         pickle.dump(self.tree, tree_f)
         pickle.dump(self.sha256, sha256_f)
@@ -191,10 +191,10 @@ class FeatureTree:
         print('Everything is done and goes well! :)\n')
 
     def evaluate(self):
-        self.tree = pickle.load(open('ftree.p', 'rb'))
-        self.sha256 = pickle.load(open('sha256.p', 'rb'))
-        self.hidden_features = pickle.load(open('hf.p', 'rb'))
-        self.labels = pickle.load(open('labels.p', 'rb'))
+        self.tree = pickle.load(open('relationship/ftree.p', 'rb'))
+        self.sha256 = pickle.load(open('relationship/sha256.p', 'rb'))
+        self.hidden_features = pickle.load(open('relationship/hf.p', 'rb'))
+        self.labels = pickle.load(open('relationship/labels.p', 'rb'))
 
         for j in range(len(self.labels)):
             dist, ind = self.tree.query(self.hidden_features[j, :].reshape(1, -1), k=100)

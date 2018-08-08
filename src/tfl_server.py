@@ -1,14 +1,15 @@
 from concurrent import futures
 
 import time
-import grpc
 import argparse
 import os
 import pickle
 import shlex
 import signal
 import subprocess
+import numpy as np
 import tensorflow as tf
+import grpc
 
 from feedhandling import feed_handling_pb2
 from feedhandling import feed_handling_pb2_grpc
@@ -18,13 +19,14 @@ from tflearning.NN import NN
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2
 from tensorflow.python.framework import tensor_util
+from sklearn import preprocessing
 
 _ONE_DAY_IN_SECONDS = 60 * 60 * 24
 tf.app.flags.DEFINE_string('server', 'localhost:9000', 'PredictionService host:port')
 FLAGS = tf.app.flags.FLAGS
 
 def train_model():
-    nn_instance = NN("./objects.p", label_length=29)
+    nn_instance = NN('./objects.p', label_length=29)
     nn_instance.restore()
 
     skf = nn_instance.split_train_test(3, 0)
@@ -40,7 +42,12 @@ def connect_to_fh_server(fh_addr):
     return feed_handling_pb2_grpc.FeedHandlingStub(channel)
 
 def convert_to_name(labels):
-    label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2', 'CIA Malware', 'Hijacker', 'Trojan', 'Zeus offshoot', 'Password stealing tool', 'DDoS Bot', 'Virus', 'Worm', 'Botnet']
+    label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot',
+             'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser',
+             'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker',
+             'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda',
+             'yoyoddos2', 'CIA Malware', 'Hijacker', 'Trojan', 'Zeus offshoot',
+             'Password stealing tool', 'DDoS Bot', 'Virus', 'Worm', 'Botnet']
 
     names = []
 
@@ -51,15 +58,18 @@ def convert_to_name(labels):
 
 def get_hidden_features(hostport, mlp_features, cnn_features):
     host, port = hostport.split(':')
-    channel = implementations.insecure_channel(host, int(port))
+    channel = grpc.insecure_channel(host, int(port))
     stub = prediction_service_pb2.beta_create_PredictionService_stub(channel)
 
     request = predict_pb2.PredictRequest()
     request.model_spec.name = 'malware'
-    request.model_spec.signature_name = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+    request.model_spec.signature_name = \
+            tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
 
-    request.inputs['mlp_features'].CopyFrom(tf.contrib.util.make_tensor_proto(mlp_features, shape=mlp_features.shape))
-    request.inputs['cnn_features'].CopyFrom(tf.contrib.util.make_tensor_proto(cnn_features, shape=cnn_features.shape))
+    request.inputs['mlp_features'].CopyFrom(
+        tf.contrib.util.make_tensor_proto(mlp_features, shape=mlp_features.shape))
+    request.inputs['cnn_features'].CopyFrom(
+        tf.contrib.util.make_tensor_proto(cnn_features, shape=cnn_features.shape))
     request.inputs['keep_prob'].CopyFrom(tf.contrib.util.make_tensor_proto(1.0))
 
     response = stub.Predict(request, 5.0)
@@ -67,7 +77,7 @@ def get_hidden_features(hostport, mlp_features, cnn_features):
     return tensor_util.MakeNdarray(response.outputs['label'])
 
 def get_training_data(fh_addr):
-    stub = connect_to_tfl_server(tfl_addr)
+    stub = connect_to_fh_server(fh_addr)
     rows = stub.GetTrainingData(feed_handling_pb2.Empty())
 
     object_list = []
@@ -84,7 +94,9 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
         self.verbose = args.verbose
         self.fh_addr = args.fh_addr
 
-        self.command_args = shlex.split('tensorflow_model_server --port=9000 --model_name=malware --model_base_path=' + args.model_path)
+        self.command_args = shlex.split(
+            'tensorflow_model_server --port=9000 --model_name=malware --model_base_path='
+            + args.model_path)
         self.proc = subprocess.Popen(self.command_args)
 
     def PredictLabel(self, request, context):
@@ -95,7 +107,8 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
         X_objdump = preprocessing.MinMaxScaler().fit_transform(request.features_cuckoo)
         X_peinfo = preprocessing.MinMaxScaler().fit_transform(request.features_objdump)
         X_richheader = preprocessing.MinMaxScaler().fit_transform(request.features_peinfo)
-        mlp_features = np.concatenate((X_objdump, X_peinfo, X_richheader), axis=1).astype(np.float32)
+        mlp_features = np.concatenate((X_objdump, X_peinfo, X_richheader),
+                                      axis=1).astype(np.float32)
         cnn_features = np.array(request.features_richheader).astype(np.int32)
 
         if self.verbose:
@@ -104,7 +117,7 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
         labels = get_hidden_features(FLAGS.server, mlp_features, cnn_features)
 
         for i in labels:
-            yield tf_learning_pb2.Labels(labels=labels)
+            yield tf_learning_pb2.Labels(labels=i)
 
         if self.verbose:
             print('[Info] Predicted label sent!')
@@ -121,12 +134,17 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
 
         if request.sha256 in sha256:
             j = sha256.index(request.sha256)
-            dist, ind = tree.query(hidden_features[j,:].reshape(1, -1), k=2000)
+            dist, ind = tree.query(hidden_features[j, :].reshape(1, -1), k=2000)
 
-            yield tf_learning_pb2.Relationships(sha256=sha256[j], labels=convert_to_name(labels[j]), distance=0)
+            yield tf_learning_pb2.Relationships(sha256=sha256[j],
+                                                labels=convert_to_name(labels[j]),
+                                                distance=0)
+
             for i in range(len(ind[0])):
                 if j != ind[0][i] and set(labels[j]) == set(labels[ind[0][i]]):
-                    yield tf_learning_pb2.Relationships(sha256=sha256[ind[0][i]], labels=convert_to_name(labels[ind[0][i]]), distance=dist[0][i])
+                    yield tf_learning_pb2.Relationships(sha256=sha256[ind[0][i]],
+                                                        labels=convert_to_name(labels[ind[0][i]]),
+                                                        distance=dist[0][i])
 
             if self.verbose:
                 print('[Info] Relationship sent!')
@@ -174,9 +192,9 @@ def serve(args):
     except KeyboardInterrupt:
         server.stop(0)
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog='python tfl_server.py', description='Tensorflow learning server')
+def main():
+    parser = argparse.ArgumentParser(prog='python tfl_server.py',
+                                     description='Tensorflow learning server')
     parser.add_argument('-v', '--verbose', help='Verbose mode', action='store_true')
     parser.add_argument('-p', '--port', help='Listening port for tensorflow learning server')
     parser.add_argument('--fh-addr', help='Address of feed handling server')
@@ -185,3 +203,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     serve(args)
+
+if __name__ == '__main__':
+    main()

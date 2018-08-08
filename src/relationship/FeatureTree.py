@@ -5,7 +5,6 @@ import pickle
 import numpy as np
 import tensorflow as tf
 import feedhandling.feed_handling_pb2 as feed_handling_pb2
-import time
 
 from sklearn import preprocessing
 from sklearn.neighbors import KDTree
@@ -13,13 +12,18 @@ from grpc.beta import implementations
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2
 from tensorflow.python.framework import tensor_util
-from collections import Counter
 
 tf.app.flags.DEFINE_string('server', 'localhost:9000', 'PredictionService host:port')
 FLAGS = tf.app.flags.FLAGS
 
 def encode_label(labels):
-    label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
+    label = ['CryptoRansom', 'apt1', 'athena_variant',
+             'betabot', 'blackshades', 'citadel_krebs',
+             'darkcomet', 'darkddoser', 'dirtjumper',
+             'expiro', 'gamarue', 'ghostheart2',
+             'locker', 'machbot', 'mediyes',
+             'nitol', 'pushdo', 'shylock',
+             'simda', 'yoyoddos2']
 
     switcher = {
         'athena_variant': 20,   # CIA Malware
@@ -48,6 +52,14 @@ def encode_label(labels):
         classifications.append(switcher.get(label[classifications[0]]))
 
     return classifications
+
+def decode_one_hot(labels):
+    decoded_labels = []
+    for i in range(len(labels)):
+        if labels[i] == 1:
+            decoded_labels.append(i)
+
+    return decoded_labels
 
 class FeatureTree:
     def __init__(self, file_path):
@@ -100,7 +112,10 @@ class FeatureTree:
         X_objdump = preprocessing.MinMaxScaler().fit_transform(X_objdump)
         X_peinfo = preprocessing.MinMaxScaler().fit_transform(X_peinfo)
         X_richheader = preprocessing.MinMaxScaler().fit_transform(X_richheader)
-        self.mlp_features = np.concatenate((X_objdump, X_peinfo, X_richheader), axis=1).astype(np.float32)
+        self.mlp_features = np.concatenate((X_objdump,
+                                            X_peinfo,
+                                            X_richheader
+                                           ), axis=1).astype(np.float32)
 
         self.labels = np.array(self.labels)
         self.hidden_features = np.empty([1, 29])
@@ -111,10 +126,11 @@ class FeatureTree:
         host, port = hostport.split(':')
         channel = implementations.insecure_channel(host, int(port))
         stub = prediction_service_pb2.beta_create_PredictionService_stub(channel)
-                                 
+
         request = predict_pb2.PredictRequest()
         request.model_spec.name = 'malware'
-        request.model_spec.signature_name = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        request.model_spec.signature_name = tf.saved_model \
+                .signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
 
         N = len(self.sha256)
         index = [i for i in range(N)]
@@ -124,29 +140,31 @@ class FeatureTree:
             index_size = len(index)
             chunk_index = [index.pop() for i in range(min(chunk_size, index_size))]
 
-            request.inputs['mlp_features'].CopyFrom(tf.contrib.util.make_tensor_proto(self.mlp_features[chunk_index,:], shape=self.mlp_features[chunk_index,:].shape))
-            request.inputs['cnn_features'].CopyFrom(tf.contrib.util.make_tensor_proto(self.cnn_features[chunk_index,:], shape=self.cnn_features[chunk_index,:].shape))
+            request.inputs['mlp_features'].CopyFrom(
+                tf.contrib.util.make_tensor_proto(
+                    self.mlp_features[chunk_index, :],
+                    shape=self.mlp_features[chunk_index, :].shape))
+            request.inputs['cnn_features'].CopyFrom(
+                tf.contrib.util.make_tensor_proto(
+                    self.cnn_features[chunk_index, :],
+                    shape=self.cnn_features[chunk_index, :].shape))
             request.inputs['keep_prob'].CopyFrom(tf.contrib.util.make_tensor_proto(1.0))
 
             response = stub.Predict(request, 5.0)
 
-            self.hidden_features = np.concatenate((self.hidden_features, tensor_util.MakeNdarray(response.outputs['y_raw'])), axis=0)
-            self.predicted_labels = np.concatenate((self.predicted_labels, tensor_util.MakeNdarray(response.outputs['label'])), axis=0)
+            self.hidden_features = np.concatenate((
+                self.hidden_features,
+                tensor_util.MakeNdarray(response.outputs['y_raw'])), axis=0)
+            self.predicted_labels = np.concatenate((
+                self.predicted_labels,
+                tensor_util.MakeNdarray(response.outputs['label'])), axis=0)
 
             chunk_id += 1
 
         self.hidden_features = np.delete(self.hidden_features, 0, 0)
         self.predicted_labels = np.delete(self.predicted_labels, 0, 0)
-        self.predicted_labels = [self.decode_one_hot(l) for l in self.predicted_labels]
+        self.predicted_labels = [decode_one_hot(l) for l in self.predicted_labels]
         print('Received all features!\n')
-
-    def decode_one_hot(self, labels):
-        decoded_labels = []
-        for i in range(len(labels)):
-            if labels[i] == 1:
-                decoded_labels.append(i)
-
-        return decoded_labels
 
     def build_and_save_feature_tree(self):
         print('Start building and saving the feature tree ...\n')
@@ -179,7 +197,7 @@ class FeatureTree:
         self.labels = pickle.load(open('labels.p', 'rb'))
 
         for j in range(len(self.labels)):
-            dist, ind = self.tree.query(self.hidden_features[j,:].reshape(1, -1), k=100)
+            dist, ind = self.tree.query(self.hidden_features[j, :].reshape(1, -1), k=100)
 
             matched = []
             for i in range(len(ind[0])):
@@ -200,4 +218,3 @@ def main(_):
 
 if __name__ == '__main__':
     tf.app.run()
-

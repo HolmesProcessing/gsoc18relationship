@@ -1,8 +1,4 @@
-import sys
-sys.path.append('../')
-
 import pickle
-import random
 import time
 import glob
 import os
@@ -35,7 +31,13 @@ def max_pool_2(x):
     return tf.nn.avg_pool(x, ksize=[1, 76, 1, 1], strides=[1, 76, 1, 1], padding='SAME')
 
 def encode_label(labels):
-    label = ['CryptoRansom', 'apt1', 'athena_variant', 'betabot', 'blackshades', 'citadel_krebs', 'darkcomet', 'darkddoser', 'dirtjumper', 'expiro', 'gamarue', 'ghostheart2', 'locker', 'machbot', 'mediyes', 'nitol', 'pushdo', 'shylock', 'simda', 'yoyoddos2']
+    label = ['CryptoRansom', 'apt1', 'athena_variant',
+             'betabot', 'blackshades', 'citadel_krebs',
+             'darkcomet', 'darkddoser', 'dirtjumper',
+             'expiro', 'gamarue', 'ghostheart2',
+             'locker', 'machbot', 'mediyes',
+             'nitol', 'pushdo', 'shylock',
+             'simda', 'yoyoddos2']
 
     switcher = {
         'athena_variant': 20,   # CIA Malware
@@ -113,11 +115,13 @@ class NN:
         X_peinfo = preprocessing.MinMaxScaler().fit_transform(X_peinfo)
         X_richheader = preprocessing.MinMaxScaler().fit_transform(X_richheader)
 
-        mlp_features = np.concatenate((X_objdump, X_peinfo, X_richheader), axis=1).astype(np.float32)
+        mlp_features = np.concatenate((X_objdump,
+                                       X_peinfo,
+                                       X_richheader), axis=1).astype(np.float32)
 
         self.X = np.concatenate((X_cuckoo, mlp_features), axis=1)
         y = np.array(y)
-        self.y_enc = np.add(np.multiply(y[:,0], 100), y[:,1])
+        self.y_enc = np.add(np.multiply(y[:, 0], 100), y[:, 1])
 
         self.labels_length = labels_length
         self.learning_rate = learning_rate
@@ -205,7 +209,8 @@ class NN:
     def build(self):
         self.X_mlp_features = tf.placeholder(tf.float32, shape=(None, 197), name='X_mlp_features')
         self.X_cnn_features = tf.placeholder(tf.int32, shape=(None, 150), name='X_cnn_features')
-        self.y_labels = tf.placeholder(tf.float32, shape=(None, self.labels_length), name='y_labels')
+        self.y_labels = tf.placeholder(tf.float32, shape=(None, self.labels_length),
+                                       name='y_labels')
         self.keep_prob = tf.placeholder(tf.float32, name='keep_prob')
 
         NN_mlp = self.build_mlp(self.X_mlp_features, 197)
@@ -222,7 +227,8 @@ class NN:
         self.y_raw = tf.nn.bias_add(tf.matmul(h_dropout, self.W_out), self.b_out, name='y_raw')
         y_out = tf.nn.sigmoid(self.y_raw)
         self.labels = tf.round(y_out, name='labels')
-        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.y_raw, labels=self.y_labels), name='loss')
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=self.y_raw, labels=self.y_labels), name='loss')
 
         self.train_opt = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
@@ -235,12 +241,12 @@ class NN:
     def load_dataset_train(self, batchsize):
         for start_idx in range(0, self.X_train.shape[0] - batchsize + 1, batchsize):
             excerpt = slice(start_idx, start_idx + batchsize)
-            yield self.X_train[excerpt,:], self.y_train_bin[excerpt,:]
+            yield self.X_train[excerpt, :], self.y_train_bin[excerpt, :]
 
     def load_dataset_test(self, batchsize):
         for start_idx in range(0, self.X_test.shape[0] - batchsize + 1, batchsize):
             excerpt = slice(start_idx, start_idx + batchsize)
-            yield self.X_test[excerpt,:], self.y_test_bin[excerpt,:]
+            yield self.X_test[excerpt, :], self.y_test_bin[excerpt, :]
 
     def train(self, num_epochs=10, batch_size=100):
         print('Start training ...')
@@ -254,12 +260,17 @@ class NN:
                 X_train, y_train_bin = batch
                 cnn_features, mlp_features = np.hsplit(X_train, [150])
 
-                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.y_labels:y_train_bin, self.keep_prob:0.9})
+                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features,
+                                                         self.X_cnn_features:cnn_features,
+                                                         self.y_labels:y_train_bin,
+                                                         self.keep_prob:0.9})
 
                 train_loss_batch = self.evaluate(mlp_features, cnn_features, y_train_bin)
                 train_acc_batch = self.get_accuracy(mlp_features, cnn_features, y_train_bin)
 
-                print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, train_loss_batch, train_acc_batch * 100))
+                print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id,
+                                                           train_loss_batch,
+                                                           train_acc_batch * 100))
 
     def test(self, batch_size=100):
         print('Start testing ...')
@@ -271,19 +282,35 @@ class NN:
             test_loss_batch = self.evaluate(mlp_features, cnn_features, y_test_bin)
             test_acc_batch = self.get_accuracy(mlp_features, cnn_features, y_test_bin)
 
-            print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, test_loss_batch, test_acc_batch * 100))
+            print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id,
+                                                       test_loss_batch,
+                                                       test_acc_batch * 100))
 
     def evaluate(self, mlp_features, cnn_features, y):
-        return self.loss.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess)
+        return self.loss.eval(feed_dict={self.X_mlp_features:mlp_features,
+                                         self.X_cnn_features:cnn_features,
+                                         self.keep_prob:1.0,
+                                         self.y_labels:y},
+                              session=self.sess)
 
     def get_accuracy(self, mlp_features, cnn_features, y):
-        return self.accuracy.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0, self.y_labels:y}, session=self.sess)
+        return self.accuracy.eval(feed_dict={self.X_mlp_features:mlp_features,
+                                             self.X_cnn_features:cnn_features,
+                                             self.keep_prob:1.0,
+                                             self.y_labels:y},
+                                  session=self.sess)
 
     def get_predicted_labels(self, mlp_features, cnn_features):
-        return self.labels.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0}, session=self.sess)
+        return self.labels.eval(feed_dict={self.X_mlp_features:mlp_features,
+                                           self.X_cnn_features:cnn_features,
+                                           self.keep_prob:1.0},
+                                session=self.sess)
 
     def get_hidden_features(self, mlp_features, cnn_features):
-        return self.y_raw.eval(feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.keep_prob:1.0}, session=self.sess)
+        return self.y_raw.eval(feed_dict={self.X_mlp_features:mlp_features,
+                                          self.X_cnn_features:cnn_features,
+                                          self.keep_prob:1.0},
+                               session=self.sess)
 
     def save(self):
         model_input_mlp = tf.saved_model.utils.build_tensor_info(self.X_mlp_features)
@@ -293,23 +320,29 @@ class NN:
         model_output_y_raw = tf.saved_model.utils.build_tensor_info(self.y_raw)
 
         signature_definition = tf.saved_model.signature_def_utils.build_signature_def(
-                inputs={'mlp_features': model_input_mlp, 'cnn_features': model_input_cnn, 'keep_prob': model_input_keep_prob},
-                outputs={'label': model_output_label, 'y_raw': model_output_y_raw},
-                method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
+            inputs={'mlp_features': model_input_mlp,
+                    'cnn_features': model_input_cnn,
+                    'keep_prob': model_input_keep_prob},
+            outputs={'label': model_output_label, 'y_raw': model_output_y_raw},
+            method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
 
         builder = tf.saved_model.builder.SavedModelBuilder('./models/' + str(int(time.time())))
 
-        builder.add_meta_graph_and_variables(self.sess, [tf.saved_model.tag_constants.SERVING],
-                                signature_def_map={
-                                    tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                                        signature_definition
-                                })
+        builder.add_meta_graph_and_variables(self.sess,
+                                             [tf.saved_model.tag_constants.SERVING],
+                                             signature_def_map={
+                                                 tf.saved_model.signature_constants \
+                                                         .DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                                                     signature_definition
+                                             })
 
         builder.save()
 
     def restore(self):
         self.sess = tf.Session()
-        tf.saved_model.loader.load(self.sess, [tf.saved_model.tag_constants.SERVING], get_latest_model())
+        tf.saved_model.loader.load(self.sess,
+                                   [tf.saved_model.tag_constants.SERVING],
+                                   get_latest_model())
 
         self.X_mlp_features = tf.get_default_graph().get_tensor_by_name('X_mlp_features:0')
         self.X_cnn_features = tf.get_default_graph().get_tensor_by_name('X_cnn_features:0')
@@ -332,23 +365,14 @@ class NN:
                 X_train, y_train_bin = batch
                 cnn_features, mlp_features = np.hsplit(X_train, [150])
 
-                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features, self.X_cnn_features:cnn_features, self.y_labels:y_train_bin, self.keep_prob:0.9})
+                self.sess.run(self.train_opt, feed_dict={self.X_mlp_features:mlp_features,
+                                                         self.X_cnn_features:cnn_features,
+                                                         self.y_labels:y_train_bin,
+                                                         self.keep_prob:0.9})
 
                 train_loss_batch = self.evaluate(mlp_features, cnn_features, y_train_bin)
                 train_acc_batch = self.get_accuracy(mlp_features, cnn_features, y_train_bin)
 
-                print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id, train_loss_batch, train_acc_batch * 100))
-
-
-if __name__ == '__main__':
-    nn_instance = NN("./objects.p", labels_length=29)
-    nn_instance.build()
-
-    skf = nn_instance.split_train_test(3, 0)
-
-    for train_index, test_index in skf:
-        nn_instance.prepare_data(train_index, test_index)
-        nn_instance.train()
-        nn_instance.test()
-
-    nn_instance.save()
+                print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id,
+                                                           train_loss_batch,
+                                                           train_acc_batch * 100))

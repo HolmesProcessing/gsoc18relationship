@@ -1,6 +1,3 @@
-import sys
-sys.path.append('../')
-
 import pickle
 import time
 import glob
@@ -379,17 +376,3 @@ class NN:
                 print('%d: loss = %8.4f, acc = %3.2f%%' % (batch_id,
                                                            train_loss_batch,
                                                            train_acc_batch * 100))
-
-
-if __name__ == '__main__':
-    nn_instance = NN('./objects.p', labels_length=29)
-    nn_instance.build()
-
-    skf = nn_instance.split_train_test(3, 0)
-
-    for train_index, test_index in skf:
-        nn_instance.prepare_data(train_index, test_index)
-        nn_instance.train()
-        nn_instance.test()
-
-    nn_instance.save()

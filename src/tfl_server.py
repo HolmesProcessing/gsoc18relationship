@@ -34,6 +34,7 @@ def train_model():
     for train_index, test_index in skf:
         nn_instance.prepare_data(train_index, test_index)
         nn_instance.retrain()
+        nn_instance.test()
 
     return nn_instance
 
@@ -127,10 +128,10 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
             print('[Request] GetRelationships()')
             print('[Info] Preparing malware relationships')
 
-        tree = pickle.load(open('ftree.p', 'rb'))
-        sha256 = pickle.load(open('sha256.p', 'rb'))
-        hidden_features = pickle.load(open('hf.p', 'rb'))
-        labels = pickle.load(open('labels.p', 'rb'))
+        tree = pickle.load(open('relationship/ftree.p', 'rb'))
+        sha256 = pickle.load(open('relationship/sha256.p', 'rb'))
+        hidden_features = pickle.load(open('relationship/hf.p', 'rb'))
+        labels = pickle.load(open('relationship/labels.p', 'rb'))
 
         if request.sha256 in sha256:
             j = sha256.index(request.sha256)

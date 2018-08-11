@@ -95,13 +95,14 @@ Network = () ->
     layout = "force"
     filter = []
     sort = "score"
+    limit = 500
 
     groupCenters = null
 
     force = d3.layout.force()
     nodeColors = d3.scale.linear()
                  .domain([0, 20])
-                 .range(["white", "black"]);
+                 .range(["black", "white"]);
     tooltip = Tooltip("vis-tooltip", 520)
 
     charge = (node) -> -Math.pow(node.radius, 2.0) / 2
@@ -118,11 +119,7 @@ Network = () ->
         force.size([width, height])
 
         setLayout("force")
-        setFilter("cuckoo")
-        setFilter("objdump")
-        setFilter("peinfo")
-        setFilter("richheader")
-        setFilter("label")
+        setFilter("file_mime")
 
         update()
 
@@ -179,11 +176,20 @@ Network = () ->
                 element.style("fill", (d) -> nodeColors(d.match))
                     .style("stroke-width", 1.0)
 
+    network.updateNodeLimit = (nodeLimit) ->
+        limit = nodeLimit
+
     network.updateData = (newData) ->
         allData = setupData(newData)
         link.remove()
         node.remove()
         update()
+
+    network.getFilter = () ->
+        filter
+
+    network.getNodeLimit = () ->
+        limit
 
     setupData = (data) ->
         circleRadius = d3.scale.sqrt().range([3, 12]).domain([0, 10])
@@ -350,8 +356,11 @@ Network = () ->
         content = '<p class="main">' + d.name + '</span></p>'
         content += '<hr class="tooltip-hr">'
         content += '<p class="main">' + d.labels + '</span></p>'
-        content += '<hr class="tooltip-hr">'
-        content += '<p class="main">' + d.features + '</span></p>'
+
+        d.features.forEach (f) ->
+            content += '<hr class="tooltip-hr">'
+            content += '<p class="main">' + f + '</span></p>'
+
         tooltip.showTooltip(content,d3.event)
 
         if link
@@ -396,10 +405,10 @@ $ ->
         activate("layouts", newLayout)
         malwareNetwork.toggleLayout(newLayout)
 
-    #d3.selectAll("#filters a").on "click", (d) ->
-    #    toggleFilter = d3.select(this).attr("id")
-    #    activateFilters("filters", toggleFilter)
-    #    malwareNetwork.toggleFilter(toggleFilter)
+    d3.selectAll("#filters a").on "click", (d) ->
+        toggleFilter = d3.select(this).attr("id")
+        activateFilters("filters", toggleFilter)
+        malwareNetwork.toggleFilter(toggleFilter)
 
     d3.selectAll("#sorts a").on "click", (d) ->
         newSort = d3.select(this).attr("id")
@@ -411,35 +420,42 @@ $ ->
         if sampleSha256.length == 64
             relationship_query = new proto.feedhandling.Query()
             relationship_query.setSha256(sampleSha256)
+            relationship_query.setIndicatorsList(malwareNetwork.getFilter())
 
             nodes = []
             links = []
+            nodeLimit = malwareNetwork.getNodeLimit()
 
             stream = service.queryRelationship(relationship_query, {})
             stream.on "data", (response) ->
-                node =
-                    id: response.getSha256()
-                    name: response.getSha256()
-                    labels: response.getLabelsList().join()
-                    match: response.getDistance()
-                    features: response.getFeaturesList().join("")
-                nodes.push node
+                if nodes.length <= nodeLimit
+                    node =
+                        id: response.getSha256()
+                        name: response.getSha256()
+                        labels: response.getLabelsList().join()
+                        match: response.getDistance()
+                        features: response.getFeaturesList()
+                    nodes.push node
 
-                if sampleSha256 != response.getSha256()
-                    link =
-                        source: sampleSha256
-                        target: response.getSha256()
-                    links.push link
+                    if sampleSha256 != response.getSha256()
+                        link =
+                            source: sampleSha256
+                            target: response.getSha256()
+                        links.push link
 
-                if nodes.length == 20
-                    relationships =
-                        nodes: nodes
-                        links: links
-                    malwareNetwork.updateData(relationships)
+            stream.on "end", () ->
+                relationships =
+                    nodes: nodes
+                    links: links
+                malwareNetwork.updateData(relationships)
 
     $("#search").keyup () ->
         searchTerm = $(this).val()
         malwareNetwork.updateSearch(searchTerm)
+
+    $("#node_limit").keyup () ->
+        nodeLimit = $(this).val()
+        malwareNetwork.updateNodeLimit(nodeLimit)
 
     d3.json "data/sample.json", (json) ->
         malwareNetwork("#vis", json)

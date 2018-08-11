@@ -214,7 +214,7 @@ Afterwards, view the visualization of relationships in <http://localhost:9090/in
 1. Copy and put all the necessary sample data into `src/relationship`
 
 ```sh
-cp tests/*.p src/relationship
+$ cp tests/*.p src/relationship
 ```
 
 2. Run feed handling and Tensorflow learning servers

@@ -14,13 +14,13 @@ from tflearning import tf_learning_pb2_grpc
 
 _ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
-def connect_to_storage(auth_username, auth_password, cluster_ip, cluster_port):
+def connect_to_storage(auth_username, auth_password, cluster_ip, cluster_port, keyspace):
     auth_provider = PlainTextAuthProvider(username=auth_username,
                                           password=auth_password)
     cluster = Cluster(cluster_ip, port=cluster_port,
                       auth_provider=auth_provider)
     session = cluster.connect()
-    session.set_keyspace('gsoc3')
+    session.set_keyspace(keyspace)
 
     return session
 
@@ -32,18 +32,28 @@ def get_training_data_from_storage(
         auth_username, auth_password, cluster_ip, cluster_port
     ):
     session = connect_to_storage(auth_username, auth_password,
-                                 cluster_ip, cluster_port)
+                                 cluster_ip, cluster_port,
+                                 'gsoc3')
 
     return session.execute('SELECT * FROM preprocessing_objects')
 
 def get_features_from_storage(
-        sha256, auth_username, auth_password, cluster_ip, cluster_port
+        sha256s, indicators, auth_username, auth_password, cluster_ip, cluster_port
     ):
     session = connect_to_storage(auth_username, auth_password,
-                                 cluster_ip, cluster_port)
+                                 cluster_ip, cluster_port,
+                                 'holmes_labeled')
 
-    return session.execute('SELECT * FROM preprocessing_results where sha256=\''
-                           + sha256 + '\' and service_name=\'peinfo\'')
+    sha256s_str = '\'' + '\',\''.join(sha256s) + '\''
+
+    if indicators:
+        indicators_str = ','.join(indicators)
+    else:
+        indicators_str = 'type'
+
+    return session.execute('SELECT sha256, ' + indicators_str
+                           + ' FROM objects where sha256 in ('
+                           + sha256s_str + ')')
 
 def is_new_data(timestamp):
     with pickle.load(open('checkpoint.p', 'rb')) as checkpoint:
@@ -78,29 +88,44 @@ class FeedHandlingServicer(feed_handling_pb2_grpc.FeedHandlingServicer):
             tf_learning_pb2.Query(sha256=request.sha256)
         )
 
-        i = 0
+        sha256s = []
+        relationships_copy = []
         for r in relationships:
-            timestamp = 0
+            rs = {}
+
+            rs['sha256'] = r.sha256
+            rs['labels'] = r.labels
+            rs['distance'] = r.distance
+
+            relationships_copy.append(rs)
+            sha256s.append(r.sha256)
+
+        if not self.offline:
+            meta_results = get_features_from_storage(sha256s,
+                                                     request.indicators,
+                                                     self.auth_username,
+                                                     self.auth_password,
+                                                     self.cluster_ip,
+                                                     self.cluster_port)
+
+        try:
+            meta_results[0]
+        except:
+            pass
+
+        for r in relationships_copy:
+            features = []
 
             if not self.offline:
-                try:
-                    features = get_features_from_storage(r.sha256,
-                                                         self.auth_username,
-                                                         self.auth_password,
-                                                         self.cluster_ip,
-                                                         self.cluster_port)[0].features
-                    timestamp = str(datetime.fromtimestamp(float(features[16])))
-                except:
-                    pass
+                for meta in meta_results:
+                    if meta.sha256 == r['sha256']:
+                        for i in range(len(meta) - 1):
+                            features.append(meta[i + 1])
 
-            yield feed_handling_pb2.Relationships(sha256=r.sha256,
-                                                  labels=r.labels,
-                                                  distance=r.distance,
-                                                  features=timestamp)
-
-            i += 1
-            if i == 20:
-                break
+            yield feed_handling_pb2.Relationships(sha256=r['sha256'],
+                                                  labels=r['labels'],
+                                                  distance=r['distance'],
+                                                  features=features)
 
         if self.verbose:
             print('[Info] Relationship sent!')

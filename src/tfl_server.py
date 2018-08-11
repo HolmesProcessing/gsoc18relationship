@@ -137,7 +137,7 @@ class TFLearningServicer(tf_learning_pb2_grpc.TFLearningServicer):
 
         if request.sha256 in sha256:
             j = sha256.index(request.sha256)
-            dist, ind = tree.query(hidden_features[j, :].reshape(1, -1), k=2000)
+            dist, ind = tree.query(hidden_features[j, :].reshape(1, -1), k=500)
 
             yield tf_learning_pb2.Relationships(sha256=sha256[j],
                                                 labels=convert_to_name(labels[j]),
